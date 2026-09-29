@@ -1,4 +1,5 @@
 ﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 
 namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dtos
@@ -75,6 +76,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
         public string? SubidoPor { get; set; }
         /// <summary>Razón social bajo la que quedó el registro del S10: la del consolidador.</summary>
         public string? RazonSocial { get; set; }
+        /// <summary>
+        /// Área del consolidado (<c>ga_consolidado_s10.area_scope_id</c>): la de su consolidador, la
+        /// misma que da la sigla del <see cref="Codigo"/> y la que imprime la planilla grupal. Null si
+        /// no se pudo resolver.
+        /// </summary>
+        public string? Area { get; set; }
 
         // ── Qué cubre ────────────────────────────────────────────────────
         /// <summary>
@@ -299,6 +306,34 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Dt
     public class ReembolsoObservacionDto : ReembolsoSeleccionDto
     {
         public string? Observacion { get; set; }
+    }
+
+    /// <summary>
+    /// Lo que necesita el aviso a Tesorería de que confirmó la revisión: los consolidados que
+    /// quedaron listos para pagar —uno por correo— y su destinatario principal, el rol TESORERO.
+    /// Van juntos porque se resuelven con el mismo contexto.
+    ///
+    /// Los demás destinatarios NO salen de acá: son los de Reembolsos → Configuración → Correos y
+    /// los agrega el resolver al enviar. Este DTO solo trae el principal.
+    /// </summary>
+    public class ReembolsoPorPagarCorreoInfoDto
+    {
+        public List<ConsolidadoPorPagarCorreoDatos> Consolidados { get; set; } = new();
+        /// <summary>Correos corporativos de quien tiene el rol TESORERO. Vacío si no lo tiene nadie.</summary>
+        public List<string> Destinatarios { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Lo que necesitan los dos avisos del pago, armados juntos porque salen de las mismas salidas y
+    /// las mismas consultas: el de cada persona (lo suyo, sumado) y el de cada consolidador (lo que
+    /// Tesorería le abonó y cuánto le toca reembolsar a cada trabajador).
+    /// </summary>
+    public class ReembolsoPagoCorreoInfoDto
+    {
+        /// <summary>Uno por persona: el aviso <c>REEMBOLSO_PAGADO</c>.</summary>
+        public List<ReembolsoPagadoCorreoDatos> Personas { get; set; } = new();
+        /// <summary>Uno por consolidado: el aviso <c>REEMBOLSO_PAGADO_CONSOLIDADOR</c>.</summary>
+        public List<ConsolidadoPagadoCorreoDatos> Consolidados { get; set; } = new();
     }
 
     // ── Seguimiento (11.4 del requerimiento) ─────────────────────────────────

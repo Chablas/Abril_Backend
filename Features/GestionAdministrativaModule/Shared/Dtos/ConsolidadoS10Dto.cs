@@ -34,7 +34,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
 
         /// <summary>
         /// La PLANILLA GRUPAL: el PDF que junta en un solo documento las planillas de gasto de todo
-        /// lo que cubre el consolidado. La genera Abril One al adjuntarse el S10. Null en los
+        /// lo que cubre el consolidado. La prepara el consolidador antes de subir el S10 (ver
+        /// <see cref="PlanillaGrupalDto"/>) y el consolidado se queda con ella. Null en los
         /// consolidados anteriores a la columna.
         /// </summary>
         public string? PlanillaGrupalUrl { get; set; }

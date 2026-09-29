@@ -8,10 +8,9 @@ public class ProyectoAreaRow
 {
     public int ProjectId { get; set; }
     public decimal AreaTechada { get; set; }
-    /// <summary>Project.Activo, SIN default: Finalizado | Activo | Inactivo | null. Null (campo
-    /// nunca cargado, típico en proyectos viejos) se trata como cerrado — solo "Activo" explícito
-    /// significa obra en curso/parcial.</summary>
-    public string? CicloVida { get; set; }
+    /// <summary>Ciclo de vida del proyecto (ProjectCicloVidaIds). Solo ACTIVO significa obra en
+    /// curso (acumulado parcial); FINALIZADO e INACTIVO se tratan como cerrados.</summary>
+    public int CicloVidaId { get; set; }
     /// <summary>Valor final tipeado a mano en Datos Base (Project.HhTotalCasa) — gana sobre el
     /// calculado desde Tareo/planilla cuando existe.</summary>
     public decimal? HhTotalCasa { get; set; }

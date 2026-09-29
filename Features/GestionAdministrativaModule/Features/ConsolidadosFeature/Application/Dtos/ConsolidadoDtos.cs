@@ -1,4 +1,4 @@
-using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Infrastructure.Models;
 
@@ -82,6 +82,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public int? RazonSocialId { get; set; }
         public string? RazonSocial { get; set; }
 
+        /// <summary>
+        /// Área del consolidado (<c>ga_consolidado_s10.area_scope_id</c>): la de su consolidador, la
+        /// misma que da la sigla del <see cref="Codigo"/> y la que imprime la planilla grupal. Null si
+        /// no se pudo resolver.
+        /// </summary>
+        public string? Area { get; set; }
+
         /// <summary>"Agosto 2026", o un rango si el consolidado cruza meses.</summary>
         public string Periodo { get; set; } = string.Empty;
         public int PeriodoAnio { get; set; }
@@ -109,10 +116,43 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         /// </summary>
         public int PorDecidirCount { get; set; }
 
+        // ── Las firmas del documento ─────────────────────────────────────
+        // Un consolidado de obra lo firman DOS: el administrador de obra y, detrás, el residente.
+        // Mientras falte alguna, sus salidas siguen Pendientes aunque este usuario ya haya firmado,
+        // así que la pantalla necesita distinguir "todavía no firmé" de "ya firmé y falta el otro".
+
+        /// <summary>Firmas ya estampadas sobre el documento, en el orden en que se pusieron.</summary>
+        public List<ConsolidadoFirmaDto> Firmas { get; set; } = new();
+
+        /// <summary>
+        /// Nombres de los que todavía tienen que firmar. Vacío cuando el documento ya las reunió
+        /// todas (y ahí sus salidas pasaron a Firmado).
+        /// </summary>
+        public List<string> FirmasPendientes { get; set; } = new();
+
+        /// <summary>
+        /// True si ESTE usuario ya estampó su firma. Aprobar deja de ofrecerse: firmar dos veces no
+        /// completa el documento, lo completa la firma del que sigue.
+        /// </summary>
+        public bool YaFirme { get; set; }
+
+        /// <summary>
+        /// True si al usuario le toca firmar pero alguien ANTES que él todavía no lo hizo (el
+        /// residente antes de que firme el administrador de obra). Todavía no puede aprobar.
+        /// </summary>
+        public bool EsperaFirmaPrevia { get; set; }
+
+        /// <summary>
+        /// True si puede volver a estampar su firma: ya firmó, el documento sigue incompleto y nadie
+        /// posterior a él firmó. Deja de ofrecerse apenas firma el siguiente, porque rehacer el
+        /// documento obligaría a volver a estampar una firma ajena.
+        /// </summary>
+        public bool PuedeVolverAFirmar { get; set; }
+
         // ── Qué puede hacer el consolidador ──────────────────────────────
         /// <summary>
         /// True si el usuario es consolidador de TODOS los trabajadores de las planillas que cubre
-        /// (Consolidados → Configuración → Consolidadores): es el dueño del trámite del S10 y las
+        /// (Configuración → Revisores de Áreas): es el dueño del trámite del S10 y las
         /// acciones de abajo son suyas.
         /// </summary>
         public bool PuedeConsolidar { get; set; }
@@ -148,6 +188,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         /// caso normal: casi ningún consolidado pasa por el ERP. Su estado dice de quién es la pelota.
         /// </summary>
         public CorreccionS10Dto? CorreccionS10 { get; set; }
+    }
+
+    /// <summary>Una firma ya estampada sobre el Consolidado del S10.</summary>
+    public class ConsolidadoFirmaDto
+    {
+        /// <summary>Nombre de quien firmó, como se imprime en el pie de la firma.</summary>
+        public string Nombre { get; set; } = string.Empty;
+        /// <summary>Su puesto (el de su ficha vigente). Null si no tiene.</summary>
+        public string? Puesto { get; set; }
+        public DateTimeOffset FirmadoAt { get; set; }
+        /// <summary>True si la puso el usuario que está mirando la pantalla.</summary>
+        public bool Yo { get; set; }
     }
 
     /// <summary>Una planilla cubierta por el consolidado, con lo que la pantalla muestra de ella.</summary>
@@ -215,6 +267,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
     {
         /// <summary>Las salidas visibles de todas sus planillas, en orden de planilla y trabajador.</summary>
         public List<ConsolidadoSalidaDto> Salidas { get; set; } = new();
+
+        /// <summary>
+        /// El recorrido del reembolso de esta rendición grupal —de la solicitud al pago—, para el
+        /// pipeline del modal de detalle. Lo arma <c>ReembolsoPipelineBuilder</c>, el mismo de las
+        /// otras pantallas del ciclo.
+        /// </summary>
+        public ReembolsoPipelineDto Pipeline { get; set; } = new();
     }
 
     public class ConsolidadoFiltersDto
@@ -235,6 +294,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public bool SeesAll { get; set; }
         public bool SeesAllOverride { get; set; }
         public List<int>? VisibleAreaScopeIds { get; set; }
+        /// <summary>
+        /// Trabajadores de las obras de las que el usuario es residente o administrador: en obra
+        /// los dos firman el consolidado, así que tienen que verlo aunque el área no sea suya.
+        /// </summary>
+        public List<int>? TrabajadoresDeSusObras { get; set; }
     }
 
     /// <summary>
@@ -387,6 +451,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         /// <summary>Planillas del consolidado con alguna salida Observada: se pide una corrección por cada una.</summary>
         public List<int> RendicionIdsObservadas { get; set; } = new();
         public bool HayCorreccionEnCurso { get; set; }
+        /// <summary>Código CONS-SIGLA-AAAA-NNN: el correo al ERP nombra el pedido por él.</summary>
+        public string? Codigo { get; set; }
         public string? NumeroReembolso { get; set; }
         /// <summary>Nombre de quien pide la corrección (el usuario), para el correo al ERP.</summary>
         public string? Solicitante { get; set; }
@@ -437,6 +503,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
     /// Quién firma, tal como se imprime en el pie de la firma: su nombre y el puesto de su ficha
     /// vigente (<c>workers.puesto_id</c>). Sin puesto, el pie dice "Firma de Jefatura / Gerencia".
     /// </summary>
+    /// <summary>
+    /// Qué pasaría si el usuario firmara AHORA los consolidados de una selección: si alguno queda
+    /// completo y a quién le pasaría el turno. Es lo que la confirmación necesita para no prometer
+    /// un correo que no va a salir — con una firma pendiente detrás, aprobar no avisa al
+    /// consolidador ni a Tesorería, porque el reembolso sigue Pendiente.
+    /// </summary>
+    public class ProximaFirmaDto
+    {
+        /// <summary>Correos de quien firmaría después, sin repetir. Vacío si no queda nadie.</summary>
+        public List<string> Emails { get; set; } = new();
+
+        /// <summary>Al menos uno de los consolidados reuniría todas sus firmas con esta.</summary>
+        public bool AlgunoSeCompleta { get; set; }
+    }
+
     public class FirmanteDto
     {
         public string Nombre { get; set; } = string.Empty;
@@ -452,14 +533,39 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public int RendicionId { get; set; }
         /// <summary>Salidas de la planilla que entran en esta aprobación.</summary>
         public List<int> SolicitudIds { get; set; } = new();
-        public string PlanillaUrl { get; set; } = string.Empty;
-        public string PlanillaFilename { get; set; } = string.Empty;
+
         /// <summary>
-        /// Consolidados vigentes que cubren esas salidas. Normalmente uno —el de la planilla, que
-        /// es como se adjunta hoy—; en registros antiguos puede haber uno por salida suelta, y por
-        /// eso es una lista y no un solo documento.
+        /// PDF de la planilla sobre el que se estampa: el original, o su copia firmada si el
+        /// documento que la respalda ya trae otra firma. Un consolidado se decide ENTERO, así que
+        /// quien lo firma firma todas sus planillas: partir siempre del original haría que la
+        /// segunda firma borrara a la primera.
+        /// </summary>
+        public string PlanillaUrl { get; set; } = string.Empty;
+
+        /// <summary>Nombre del ORIGINAL: la copia firmada se nombra a partir de él.</summary>
+        public string PlanillaFilename { get; set; } = string.Empty;
+
+        /// <summary>Lugar de la firma en la planilla, el mismo que en su consolidado.</summary>
+        public int PlanillaSlot { get; set; }
+        /// <summary>
+        /// Consolidados vigentes que cubren esas salidas y a los que hay que estamparles la firma.
+        /// Normalmente uno —el de la planilla, que es como se adjunta hoy—; en registros antiguos
+        /// puede haber uno por salida suelta, y por eso es una lista y no un solo documento.
+        ///
+        /// Puede venir VACÍA con <see cref="ConsolidadoPorSolicitud"/> lleno: es el caso del jefe
+        /// que ya firmó ese consolidado al aprobar otra de sus planillas. Ahí se firma la planilla
+        /// pero el consolidado no se vuelve a estampar.
         /// </summary>
         public List<DocumentoParaFirmarDto> Consolidados { get; set; } = new();
+
+        /// <summary>
+        /// solicitudId → el consolidado que la respalda. Es lo que decide si esa salida puede pasar
+        /// a "Firmado": se contrasta contra las firmas que el documento todavía debe, también
+        /// cuando no queda nada que estampar. Sin este mapa, volver a aprobar un consolidado ya
+        /// firmado por uno mismo dejaba la lista de documentos vacía y la salida saltaba a Firmado
+        /// con una sola firma de las dos.
+        /// </summary>
+        public Dictionary<int, int> ConsolidadoPorSolicitud { get; set; } = new();
     }
 
     /// <summary>Dónde quedó en SharePoint la copia firmada de un documento.</summary>
@@ -475,9 +581,59 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
     {
         public int RendicionId { get; set; }
         public List<int> SolicitudIds { get; set; } = new();
-        public ArchivoFirmadoDto Planilla { get; set; } = new();
-        /// <summary>consolidadoId → sus copias firmadas.</summary>
+        /// <summary>
+        /// Su copia firmada. Null cuando no había nada que estampar —el usuario ya había firmado
+        /// todos los consolidados que la cubren—: ahí la copia que ya existe se deja como está.
+        /// </summary>
+        public ArchivoFirmadoDto? Planilla { get; set; }
+        /// <summary>consolidadoId → sus copias firmadas. Vacío si el usuario ya los había firmado.</summary>
         public Dictionary<int, ConsolidadoFirmadoDto> Consolidados { get; set; } = new();
+        /// <summary>
+        /// solicitudId → el consolidado que la respalda, tal como lo resolvió el guard. Ver
+        /// <see cref="PlanillaParaFirmarDto.ConsolidadoPorSolicitud"/>.
+        /// </summary>
+        public Dictionary<int, int> ConsolidadoPorSolicitud { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Qué dejó una aprobación (que es una firma). Firmar y quedar aprobado dejaron de ser lo
+    /// mismo cuando el documento pasó a necesitar DOS firmas: con la primera el papel ya lleva la
+    /// estampa pero el reembolso sigue Pendiente, y avisar «aprobado» al consolidador o «por pagar»
+    /// a Tesorería en ese momento sería falso.
+    /// </summary>
+    public class ReembolsoFirmaResultDto
+    {
+        /// <summary>Salidas alcanzadas: su documento ya lleva la firma de este usuario.</summary>
+        public List<int> Firmadas { get; set; } = new();
+
+        /// <summary>
+        /// De esas, las que además quedaron en "Firmado": su documento reunió TODAS las firmas que
+        /// el área exige y recién ahí es pagable.
+        /// </summary>
+        public List<int> Completadas { get; set; } = new();
+
+        /// <summary>Planillas con alguna salida completada.</summary>
+        public List<int> RendicionesCompletadas { get; set; } = new();
+
+        /// <summary>
+        /// Consolidados con alguna salida completada: es lo que se le avisa a Tesorería, UN correo
+        /// por documento. Cuando el aviso salía por planilla, un consolidado de tres planillas le
+        /// llegaba tres veces.
+        /// </summary>
+        public List<int> ConsolidadosCompletados { get; set; } = new();
+
+        /// <summary>
+        /// De los completados, los que volvían de una observación de TESORERÍA, con lo que ella
+        /// había observado. No entran a su bandeja por primera vez sino que vuelven, y el aviso que
+        /// les toca es otro. Se toma en la escritura porque aprobar limpia la observación.
+        /// </summary>
+        public Dictionary<int, string?> ObservacionesTesoreria { get; set; } = new();
+
+        /// <summary>
+        /// Consolidados en los que esta firma es NUEVA. Es lo que dispara el aviso al siguiente
+        /// firmante: volver a aprobar algo que uno ya firmó no vuelve a molestarlo.
+        /// </summary>
+        public List<int> ConsolidadosFirmados { get; set; } = new();
     }
 
     /// <summary>Las copias firmadas de un consolidado: el del S10 y su planilla grupal.</summary>
@@ -486,28 +642,85 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
         public ArchivoFirmadoDto S10 { get; set; } = new();
         /// <summary>Null en los consolidados anteriores a la planilla grupal.</summary>
         public ArchivoFirmadoDto? Grupal { get; set; }
+
+        /// <summary>
+        /// Lugar que ocupó esta firma en la hoja (0 la primera, 1 la de al lado). Viaja hasta la
+        /// escritura para guardarlo con la fila de la firma: así una firma posterior no lo
+        /// recalcula mal y termina encima de otra.
+        /// </summary>
+        public int Slot { get; set; }
+    }
+
+    // ══ Volver a firmar ═════════════════════════════════════════════════════
+    // Rehacer la propia firma mientras el documento sigue esperando la del que viene detrás. No es
+    // una segunda firma: la copia firmada se REHACE desde el original, con las mismas firmas que
+    // tenía y la de este usuario al día.
+
+    /// <summary>Todo lo que hace falta para rehacer las copias firmadas de un consolidado.</summary>
+    public class ConsolidadoParaRefirmarDto
+    {
+        public int Id { get; set; }
+        /// <summary>El Consolidado del S10 ORIGINAL, sin ninguna firma: es de donde se parte.</summary>
+        public string PdfUrl { get; set; } = string.Empty;
+        public string PdfFilename { get; set; } = string.Empty;
+        /// <summary>La planilla grupal ORIGINAL. Null en los consolidados anteriores a la columna.</summary>
+        public string? GrupalUrl { get; set; }
+        public string? GrupalFilename { get; set; }
+
+        /// <summary>
+        /// Las firmas vivas del documento, por slot: hay que volver a estamparlas todas porque se
+        /// parte del original. La de este usuario se rehace con la fecha de ahora.
+        /// </summary>
+        public List<FirmaPuestaDto> Firmas { get; set; } = new();
+
+        /// <summary>
+        /// Planillas del documento que firmó ESTE usuario (<c>ga_rendicion.firmado_por_id</c>): su
+        /// copia firmada se rehace también, para que la fecha del papel sea la misma en todas.
+        /// </summary>
+        public List<PlanillaParaRefirmarDto> Planillas { get; set; } = new();
+    }
+
+    /// <summary>Una firma viva de <c>ga_consolidado_s10_firma</c>: quién la puso y en qué lugar.</summary>
+    public class FirmaPuestaDto
+    {
+        public int Id { get; set; }
+        /// <summary><c>app_user</c> que firmó.</summary>
+        public int FirmadoPorId { get; set; }
+        public int Slot { get; set; }
+        public DateTimeOffset FirmadoAt { get; set; }
+    }
+
+    /// <summary>Una planilla cuya copia firmada hay que rehacer, con su PDF original.</summary>
+    public class PlanillaParaRefirmarDto
+    {
+        public int RendicionId { get; set; }
+        public string PdfUrl { get; set; } = string.Empty;
+        public string PdfFilename { get; set; } = string.Empty;
+    }
+
+    /// <summary>Las copias rehechas de un consolidado y de las planillas que este usuario firmó.</summary>
+    public class ConsolidadoRefirmadoDto
+    {
+        public int ConsolidadoId { get; set; }
+        public ArchivoFirmadoDto S10 { get; set; } = new();
+        public ArchivoFirmadoDto? Grupal { get; set; }
+        /// <summary>rendicionId → su copia firmada rehecha.</summary>
+        public Dictionary<int, ArchivoFirmadoDto> Planillas { get; set; } = new();
     }
 
     /// <summary>
-    /// El aviso a Tesorería de que una planilla quedó firmada y ya se puede pagar. El destinatario
-    /// principal se resuelve por ROL (TESORERO), que es la misma condición que abre la bandeja de
-    /// Reembolsos: así el correo le llega exactamente a quien puede actuar sobre él, sin depender
-    /// de un área ni de una lista de nombres.
+    /// El aviso a Tesorería de que un consolidado quedó firmado y ya se puede revisar para pagarlo.
+    /// El destinatario principal se resuelve por ROL (TESORERO), que es la misma condición que abre
+    /// la bandeja de Reembolsos: así el correo le llega exactamente a quien puede actuar sobre él,
+    /// sin depender de un área ni de una lista de nombres.
     ///
-    /// Los demás —el Coordinador ERP, por ejemplo— NO salen de acá: son destinatarios normales de
-    /// Configuración → Correos (tipo ROL) y los agrega el resolver al enviar. Este DTO solo trae
-    /// el principal.
+    /// Los demás NO salen de acá: son destinatarios normales de Consolidados → Configuración →
+    /// Correos y los agrega el resolver al enviar. Este DTO solo trae el principal.
     /// </summary>
     public class TesoreriaCorreoInfoDto
     {
-        public ReembolsoPlanillaCorreoDatos Datos { get; set; } = new();
+        public ConsolidadoTesoreriaCorreoDatos Datos { get; set; } = new();
         /// <summary>Correos corporativos de quien tiene el rol TESORERO. Vacío si no lo tiene nadie.</summary>
         public List<string> Destinatarios { get; set; } = new();
-        /// <summary>
-        /// Consolidado del S10 que respalda a la planilla: es lo que abre el botón del correo,
-        /// porque la bandeja de Tesorería lista por documento. Null solo si la planilla no tiene
-        /// consolidado vigente, y ahí el botón lleva a la bandeja sin abrir nada.
-        /// </summary>
-        public int? ConsolidadoId { get; set; }
     }
 }

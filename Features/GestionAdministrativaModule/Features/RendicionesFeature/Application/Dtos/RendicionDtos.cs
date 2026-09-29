@@ -129,6 +129,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
     /// <summary>La planilla con el desglose de sus salidas propias.</summary>
     public class RendicionDetalleDto : RendicionListItemDto
     {
+        /// <summary>
+        /// El recorrido del reembolso de esta planilla —de la solicitud al pago—, para el pipeline
+        /// del modal de detalle. Lo arma <c>ReembolsoPipelineBuilder</c>, el mismo de las otras
+        /// pantallas del ciclo.
+        /// </summary>
+        public ReembolsoPipelineDto Pipeline { get; set; } = new();
+
         public List<RendicionSalidaDto> Salidas { get; set; } = new();
     }
 
@@ -271,5 +278,13 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.D
         public string? Email { get; set; }
         /// <summary>Nombre del área a la que entra por su puesto. Null si no se resuelve.</summary>
         public string? Area { get; set; }
+
+        /// <summary>
+        /// TODOS los trabajadores que agrupa la planilla, que es lo que identifica al documento.
+        /// El jefe que decide la primera revisión es el del documento entero —no el del trabajador
+        /// que envía— y sale de aquí, para que el correo caiga en quien realmente va a tener el
+        /// botón: una planilla que el revisor generó desde Gestión de Salidas puede mezclar varios.
+        /// </summary>
+        public List<int> WorkersDeLaPlanilla { get; set; } = new();
     }
 }

@@ -93,6 +93,10 @@ public class CrearInspeccionRequest
     public string? HoraInicio { get; set; }
     public string? HoraFin { get; set; }
     public string? Area { get; set; }
+    /// <summary>TORRE_PISO | TORRE_COMPLETA | OBRA_GENERAL | EXTERIOR.</summary>
+    public string? AmbitoLugar { get; set; }
+    public string? TorreNombre { get; set; }
+    public string? ProyectoPiso { get; set; }
     public string? ResponsableArea { get; set; }
     /// <summary>
     /// Worker que hace la inspección. El formulario ya lo resuelve del usuario logueado; si no
@@ -128,6 +132,9 @@ public class EditarInspeccionRequest
     public string? HoraInicio { get; set; }
     public string? HoraFin { get; set; }
     public string? Area { get; set; }
+    public string? AmbitoLugar { get; set; }
+    public string? TorreNombre { get; set; }
+    public string? ProyectoPiso { get; set; }
     public string? ResponsableArea { get; set; }
     public string? InspectorNombre { get; set; }
     public string? InspectorCargo { get; set; }
@@ -223,6 +230,9 @@ public class InspeccionDetalleDto
     public string? HoraInicio { get; set; }
     public string? HoraFin { get; set; }
     public string? Area { get; set; }
+    public string? AmbitoLugar { get; set; }
+    public string? TorreNombre { get; set; }
+    public string? ProyectoPiso { get; set; }
     public string? ResponsableArea { get; set; }
     public string? InspectorNombre { get; set; }
     public string? InspectorCargo { get; set; }

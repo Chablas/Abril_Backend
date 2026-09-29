@@ -24,7 +24,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
         /// <summary>Número impreso en el PDF ("TI: 000123"). Null en las planillas que no lo tienen.</summary>
         public string? NumeroPlanilla { get; set; }
 
-        /// <summary>"Pendiente de corrección S10" | "Pendiente de recarga S10".</summary>
+        /// <summary>"Pendiente de corrección S10" | "Atendido".</summary>
         public string Estado { get; set; } = EstadosSalida.CorreccionS10.NombreSolicitada;
 
         /// <summary>True mientras el ERP no la haya atendido: es lo que le queda por hacer.</summary>
@@ -106,6 +106,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
         public string EstadoReembolso { get; set; } = EstadosSalida.Reembolso.NombrePendiente;
         /// <summary>Monto de la planilla completa: lo que suma contra el importe del S10.</summary>
         public decimal MontoTotalPlanilla { get; set; }
+
+        /// <summary>
+        /// El PDF de ESTA planilla (el original: es el que miró la jefatura al observar). Va con
+        /// cada una y no solo con la de la fila, porque el consolidado observado puede cubrir
+        /// varias y el modal enlaza cada planilla junto a su tabla.
+        /// </summary>
+        public string? PdfUrl { get; set; }
+        public string? PdfFilename { get; set; }
     }
 
     public class CorreccionS10SalidaDto
@@ -130,7 +138,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
     /// </summary>
     public class CorreccionS10FiltersDto
     {
-        /// <summary>"Pendiente de corrección S10" | "Pendiente de recarga S10" | null para todas.</summary>
+        /// <summary>"Pendiente de corrección S10" | "Atendido" | null para todas.</summary>
         public string? Estado { get; set; }
 
         /// <summary>Ficha del colaborador (<c>workers.id</c>), del desplegable. Null para todos.</summary>
@@ -154,16 +162,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
         /// <summary>Solicitudes sin atender: es la bandeja de trabajo del Coordinador.</summary>
         public int PorAtender { get; set; }
 
-        /// <summary>Ya atendidas y esperando que el colaborador recargue el Consolidado.</summary>
-        public int PorRecargar { get; set; }
+        /// <summary>Ya atendidas: esperan que el consolidador recargue el Consolidado.</summary>
+        public int Atendidas { get; set; }
 
         public static ResumenCorreccionesS10Dto De(IEnumerable<CorreccionS10ListItemDto> items)
         {
             var lista = items as ICollection<CorreccionS10ListItemDto> ?? items.ToList();
             return new ResumenCorreccionesS10Dto
             {
-                PorAtender  = lista.Count(x => x.PorAtender),
-                PorRecargar = lista.Count(x => !x.PorAtender),
+                PorAtender = lista.Count(x => x.PorAtender),
+                Atendidas  = lista.Count(x => !x.PorAtender),
             };
         }
     }

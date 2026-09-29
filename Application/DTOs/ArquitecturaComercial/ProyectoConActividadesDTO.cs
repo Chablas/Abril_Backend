@@ -4,6 +4,7 @@ namespace Abril_Backend.Application.DTOs.ArquitecturaComercial
     {
         public int Id { get; set; }
         public string Nombre { get; set; } = string.Empty;
+        /// <summary>Código del ciclo de vida del proyecto (ACTIVO, FINALIZADO, INACTIVO).</summary>
         public string Estado { get; set; } = string.Empty;
         public int? ResponsableArqComId { get; set; }
         public string? ResponsableArqCom { get; set; }

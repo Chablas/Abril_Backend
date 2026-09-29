@@ -10,9 +10,9 @@ using System.Security.Claims;
 namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presentation
 {
     /// <summary>
-    /// "Gestión de Rendiciones": las planillas del alcance del revisor, su primera revisión y el
-    /// Consolidado del S10 que se les adjunta. Decidir y firmar el reembolso es de Consolidados; el
-    /// pago es de Tesorería y vive en Reembolsos.
+    /// "Gestión de Rendiciones": las planillas del alcance del revisor, su primera revisión, la
+    /// planilla grupal y el Consolidado del S10 que se les adjunta. Decidir y firmar el reembolso es
+    /// de Consolidados; el pago es de Tesorería y vive en Reembolsos.
     /// </summary>
     [ApiController]
     [Route("api/v1/gestion-administrativa/gestion-rendiciones")]
@@ -156,9 +156,36 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Presen
         }
 
         /// <summary>
-        /// Adjunta el primer Consolidado del S10 de las planillas indicadas: una sola (el detalle) o
-        /// varias a la vez (la selección), incluso de trabajadores y razones sociales distintos. Solo
-        /// lo puede subir el consolidador de esas planillas. Reemplazarlo es de Consolidados.
+        /// Prepara la planilla grupal de las planillas indicadas —una sola (el detalle) o varias a la
+        /// vez (la selección)—: el papel sin firmar con el que el consolidador las registra en el
+        /// S10, y sobre el que después sube el consolidado. Solo la prepara el consolidador de esas
+        /// planillas, una sola vez, y les avisa a sus trabajadores.
+        /// </summary>
+        [HttpPost("planilla-grupal")]
+        public async Task<IActionResult> PrepararPlanillaGrupal([FromBody] PrepararPlanillaGrupalDto dto)
+        {
+            try
+            {
+                var userId = CurrentUserId;
+                if (userId == null) return Unauthorized(new { message = "Usuario no autenticado." });
+
+                return Ok(await _service.PrepararPlanillaGrupal(dto.RendicionIds, userId.Value));
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en GestionRendicionController.PrepararPlanillaGrupal");
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>
+        /// Adjunta el primer Consolidado del S10 de las planillas indicadas: las de UNA planilla
+        /// grupal ya preparada, incluso de trabajadores y razones sociales distintos. Solo lo puede
+        /// subir el consolidador de esas planillas. Reemplazarlo es de Consolidados.
         /// </summary>
         [HttpPost("consolidado-s10")]
         [Consumes("multipart/form-data")]

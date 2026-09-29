@@ -13,9 +13,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.FirmaTipos.Presentation
     /// dibujándola con el mouse, o cualquiera de las dos.
     ///
     /// Cuelga de <c>consolidados/configuracion</c> igual que los correos, la visibilidad y los
-    /// consolidadores: la regla se hace valer al aprobar un consolidado, y es la única pantalla que
-    /// la honra. Contabilidad → Firma y Gestión Administrativa → Tu firma siguen ofreciendo solo el
-    /// dibujo, así que apagar un tipo no les cambia nada.
+    /// consolidadores: la regla se hace valer al aprobar un consolidado. La honran también el modal
+    /// que salta al firmar sin firma y Mi Perfil → Mi Firma, que ofrecen exactamente los tipos
+    /// marcados. Contabilidad → Firma sigue ofreciendo solo el dibujo, así que apagar un tipo no le
+    /// cambia nada.
     ///
     /// El catálogo que administra (<c>firma_tipo</c>) sí es global —lo referencian las firmas de
     /// todos los módulos—, por eso el servicio vive en <c>Shared/Services/Firma</c> y acá queda

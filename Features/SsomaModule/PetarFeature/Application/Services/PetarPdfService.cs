@@ -12,7 +12,7 @@ public static class PetarPdfService
 {
     public static byte[] Generar(
         PetarResponseDto p, byte[]? selfieBytes, byte[]? firmaBytes, string verificacionUrl,
-        byte[]? firmaSupervisorBytes = null, byte[]? firmaSsomaBytes = null)
+        byte[]? firmaSupervisorBytes = null, byte[]? firmaSsomaBytes = null, byte[]? logoBytes = null)
     {
         byte[]? qrBytes = null;
         using (var generator = new QRCodeGenerator())
@@ -30,12 +30,7 @@ public static class PetarPdfService
                 page.Margin(30);
                 page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(9));
 
-                page.Header().Column(col =>
-                {
-                    col.Item().Text("PERMISO ESCRITO DE TRABAJO DE ALTO RIESGO — PETAR").Bold().FontSize(14);
-                    var tipoLinea = string.IsNullOrEmpty(p.TipoCodigo) ? $"Tipo: {p.TipoNombre}" : $"Tipo: {p.TipoNombre} ({p.TipoCodigo})";
-                    col.Item().Text(tipoLinea).FontSize(8).FontColor(Colors.Grey.Darken1);
-                });
+                page.Header().Element(c => ComposeHeader(c, logoBytes, p.TipoCodigo, p.TipoNombre));
 
                 page.Content().Column(col =>
                 {
@@ -126,6 +121,70 @@ public static class PetarPdfService
                 });
             });
         }).GeneratePdf();
+    }
+
+    /// <summary>Logo | título centrado | Código/Versión/Fecha + Elab./Rev./Apro. — mismo patrón
+    /// estándar corporativo que AtsPdfService/ConvalidacionPdfService/RacPdfService.</summary>
+    private static void ComposeHeader(IContainer container, byte[]? logoBytes, string? codigo, string? tipoNombre)
+    {
+        container.Border(0.5f).BorderColor(Colors.Grey.Lighten1).Row(row =>
+        {
+            row.ConstantItem(90).AlignMiddle().AlignCenter().Padding(4).Element(logoEl =>
+            {
+                if (logoBytes != null)
+                    logoEl.AlignMiddle().AlignCenter().Image(logoBytes).FitArea();
+                else
+                    logoEl.AlignMiddle().AlignCenter().Text("ABRIL").Bold().FontSize(8).AlignCenter();
+            });
+
+            row.ConstantItem(0.5f).Background(Colors.Grey.Lighten1);
+
+            row.RelativeItem().AlignMiddle().AlignCenter().Column(tCol =>
+            {
+                tCol.Item().AlignCenter().Text("PERMISO ESCRITO DE TRABAJO DE ALTO RIESGO (PETAR)").Bold().FontSize(11).AlignCenter();
+                if (!string.IsNullOrWhiteSpace(tipoNombre))
+                    tCol.Item().AlignCenter().Text(tipoNombre).FontSize(8).FontColor(Colors.Grey.Darken2);
+            });
+
+            row.ConstantItem(0.5f).Background(Colors.Grey.Lighten1);
+
+            row.ConstantItem(120).Column(metaCol =>
+            {
+                void MetaRow(string label, string valor, bool last = false)
+                {
+                    metaCol.Item()
+                        .BorderBottom(last ? 0f : 0.5f)
+                        .Padding(2).Row(r =>
+                    {
+                        r.AutoItem().Text(label).Bold().FontSize(7);
+                        r.ConstantItem(2);
+                        r.RelativeItem().Text(valor).FontSize(7);
+                    });
+                }
+                MetaRow("Código:", string.IsNullOrWhiteSpace(codigo) ? "SSO-FO-039" : codigo);
+                MetaRow("Versión:", "01");
+                MetaRow("Fecha:", DateTime.Today.ToString("dd/MM/yyyy"));
+
+                metaCol.Item().BorderTop(0.5f).Row(subRow =>
+                {
+                    foreach (var (lbl, val, last) in new[]
+                    {
+                        ("Elab.:", "SSOMA",  false),
+                        ("Rev.:",  "JSSOMA", false),
+                        ("Apro.:", "GP",     true ),
+                    })
+                    {
+                        var cell = subRow.RelativeItem().Padding(2);
+                        if (!last) cell = cell.BorderRight(0.5f);
+                        cell.Text(t =>
+                        {
+                            t.Span(lbl + " ").Bold().FontSize(5.5f);
+                            t.Span(val).FontSize(5.5f);
+                        });
+                    }
+                });
+            });
+        });
     }
 
     private static void FirmaBloque(IContainer container, string rol, string? nombre, string? cargo, DateTime? hora, byte[]? firma)

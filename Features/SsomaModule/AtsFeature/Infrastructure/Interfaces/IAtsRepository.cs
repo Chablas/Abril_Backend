@@ -33,7 +33,7 @@ public interface IAtsRepository
 
     /// <summary>Marca RequierePetar y llena Petares en cada dto — separado de ToDto porque cruza a
     /// ss_petar (otra feature) y a un chequeo de catálogo que no vale la pena repetir por fila.</summary>
-    Task CompletarInfoPetar(List<AtsResponseDto> ats);
+    Task CompletarInfoPetar(List<AtsResponseDto> ats, Dictionary<int, (bool EsResidente, bool EsSsoma)> permisosPorAtsId);
 
     Task<bool> TieneConsentimiento(int workerId);
     Task RegistrarConsentimiento(int workerId, string? ipOrigen);
@@ -90,7 +90,7 @@ public interface IAtsRepository
 
     // ── Controles sugeridos por riesgo ───────────────────────────────────
     Task<List<AtsRiesgoConControlesDto>> GetRiesgosConControles();
-    Task<int> CrearControl(int riesgoId, string texto);
-    Task EditarControl(int controlId, string texto);
+    Task<int> CrearControl(int riesgoId, string texto, string tipo);
+    Task EditarControl(int controlId, string texto, string tipo);
     Task EliminarControl(int controlId);
 }

@@ -60,7 +60,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Presen
                 if (userId == null)
                     return Unauthorized(new { message = "Usuario no autenticado." });
 
-                await _service.UpdateAsync(userId.Value, areaScopeId, dto?.ProjectId, dto?.Revisores ?? new List<DelegacionAsignacionDto>());
+                await _service.UpdateAsync(
+                    userId.Value, areaScopeId, dto?.ProjectId, dto?.CasoId ?? 0,
+                    dto?.Revisores ?? new List<DelegacionAsignacionDto>());
                 return Ok(new { message = "Revisores actualizados exitosamente." });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

@@ -39,11 +39,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             using var ctx = _factory.CreateDbContext();
 
             var planillas = await PlanillaRendicionLoader.LoadAsync(ctx, SalidasVisibles(ctx, filters));
-            var ajenas    = await MisWorkerIdsQueNoDecidoAsync(ctx, filters.CurrentUserId);
+            var decido    = await PlanillasQueFirmoAsync(ctx, WorkersPorPlanilla(planillas), filters.CurrentUserId);
 
             var consolidacion = await ConsolidacionPorPlanillaAsync(ctx, filters.CurrentUserId, planillas);
 
-            var items = planillas.Select(p => Armar(p, ajenas, consolidacion)).ToList();
+            var items = planillas.Select(p => Armar(p, decido, consolidacion)).ToList();
             return Filtrar(items, filters);
         }
 
@@ -56,13 +56,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             if (planillas.Count == 0) return null;
 
             var planilla = planillas[0];
-            var ajenas   = await MisWorkerIdsQueNoDecidoAsync(ctx, scope.CurrentUserId);
+            var decido   = await PlanillasQueFirmoAsync(ctx, WorkersPorPlanilla(planillas), scope.CurrentUserId);
 
             var consolidacion = await ConsolidacionPorPlanillaAsync(ctx, scope.CurrentUserId, planillas);
 
-            var cabecera = Armar(planilla, ajenas, consolidacion);
+            var cabecera = Armar(planilla, decido, consolidacion);
             var detalle  = new GestionRendicionDetalleDto();
             CopiarCabecera(cabecera, detalle);
+
+            // El pipeline sale de la cabecera ya armada —no de la planilla cruda— para que diga
+            // exactamente lo mismo que los badges de arriba del modal.
+            detalle.Pipeline = ReembolsoPipelineBuilder.ParaPlanilla(
+                codigo:                     cabecera.Codigo,
+                rendidoAt:                  cabecera.RendidoAt,
+                estadoPrimeraRevision:      cabecera.EstadoPrimeraRevision,
+                enviadaRevisionAt:          cabecera.EnviadaRevisionAt,
+                primeraRevisionAt:          cabecera.PrimeraRevisionAt,
+                consolidado:                cabecera.ConsolidadoS10,
+                firmadoAt:                  cabecera.FirmadoAt,
+                estadoReembolso:            cabecera.EstadoReembolso,
+                observacionOrigen:          cabecera.ObservacionReembolsoOrigen,
+                mixto:                      cabecera.ReembolsoMixto);
 
             detalle.Salidas = planilla.Salidas
                 .Select(s => new GestionRendicionSalidaDto
@@ -102,9 +116,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         {
             using var ctx = _factory.CreateDbContext();
 
-            var seesAll  = scope.SeesAll;
-            var areaIds  = scope.VisibleAreaScopeIds ?? new List<int>();
-            var uid      = scope.CurrentUserId;
+            var seesAll    = scope.SeesAll;
+            var areaIds    = scope.VisibleAreaScopeIds ?? new List<int>();
+            var deSusObras = scope.TrabajadoresDeSusObras ?? new List<int>();
+            var uid        = scope.CurrentUserId;
 
             // Trabajadores con al menos una salida YA RENDIDA: los que no rindieron nada todavía
             // no tienen planilla, y ofrecerlos en el filtro sería ofrecer un resultado vacío.
@@ -114,13 +129,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 .Distinct()
                 .ToListAsync();
 
+            // Mismo alcance que la tabla: su área, él mismo y, si es residente o administrador de
+            // obra, los trabajadores de su obra.
             var trabajadoresQuery = ctx.Worker.Where(w => workerIds.Contains(w.Id));
             if (!seesAll)
             {
                 trabajadoresQuery = trabajadoresQuery.Where(w =>
                     (w.PuestoCatalogo!.AreaDestinoScopeId != null
                      && areaIds.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value))
-                    || (uid != null && ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid)));
+                    || (uid != null && ctx.Person.Any(p => p.PersonId == w.PersonId && p.UserId == uid))
+                    || deSusObras.Contains(w.Id));
             }
 
             var trabajadores = await (
@@ -135,12 +153,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 }
             ).ToListAsync();
 
+            // Las áreas de los trabajadores de su obra también, para poder filtrar por ellas: el
+            // frontend toma como raíz a cualquier nodo cuyo padre no vino.
             var areaTree = await (
                 from s  in ctx.AreaScope
                 join ai in ctx.AreaItem on s.AreaItemId equals ai.AreaItemId
                 join at in ctx.AreaType on ai.AreaTypeId equals at.AreaTypeId
                 where s.State && ai.State && at.State
-                   && (seesAll || areaIds.Contains(s.AreaScopeId))
+                   && (seesAll
+                       || areaIds.Contains(s.AreaScopeId)
+                       || ctx.Worker.Any(w => deSusObras.Contains(w.Id)
+                                           && w.PuestoCatalogo!.AreaDestinoScopeId == s.AreaScopeId))
                 orderby s.DisplayOrder
                 select new AreaNodeDto
                 {
@@ -227,15 +250,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 throw new AbrilException(
                     "Ninguna de las planillas seleccionadas está esperando la primera revisión.", 400);
 
-            // Nadie revisa su propia rendición, salvo el que es su propio revisor (jefe
-            // personalizado apuntándose a sí mismo). Misma regla que la decisión del reembolso y
-            // que aprobar la salida; ver MisWorkerIdsQueNoDecidoAsync.
-            var ajenas = await MisWorkerIdsQueNoDecidoAsync(ctx, reviewerUserId);
-
+            // La primera revisión de una planilla la decide su FIRMANTE y nadie más: el mismo que
+            // firma su consolidado y recibe sus correos. Ver PlanillasQueFirmoAsync — ver la
+            // planilla ya no alcanza para aprobarla.
             var decididasIds = planillas.Select(p => p.Id).ToHashSet();
-            if (visibles.Any(x => decididasIds.Contains(x.RendicionId) && ajenas.Contains(x.WorkerId)))
+
+            var workersPorPlanilla = visibles
+                .Where(x => decididasIds.Contains(x.RendicionId))
+                .GroupBy(x => x.RendicionId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => (IReadOnlyCollection<int>)g.Select(x => x.WorkerId).Distinct().ToList());
+
+            var firmo = await PlanillasQueFirmoAsync(ctx, workersPorPlanilla, reviewerUserId);
+
+            if (decididasIds.Any(id => !firmo.Contains(id)))
                 throw new AbrilException(
-                    "No puedes revisar una rendición con tus propias salidas — deselecciónala primero.", 403);
+                    "Solo quien firma la planilla puede aprobar u observar su primera revisión. "
+                    + "Deselecciona las que no te toquen.", 403);
 
             var now = DateTimeOffset.UtcNow;
             foreach (var p in planillas)
@@ -452,28 +484,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             }
 
             return SalidaVisibilidadFilter.Aplicar(
-                query, ctx, filters.CurrentUserId, filters.SeesAll, filters.VisibleAreaScopeIds);
+                query, ctx, filters.CurrentUserId, filters.SeesAll, filters.VisibleAreaScopeIds,
+                filters.TrabajadoresDeSusObras);
         }
 
         /// <summary>Copia solo el alcance del usuario, sin los filtros de la pantalla.</summary>
         private static GestionRendicionFiltersDto SoloVisibilidad(GestionRendicionFiltersDto scope) => new()
         {
-            CurrentUserId       = scope.CurrentUserId,
-            SeesAll             = scope.SeesAll,
-            VisibleAreaScopeIds = scope.VisibleAreaScopeIds,
+            CurrentUserId          = scope.CurrentUserId,
+            SeesAll                = scope.SeesAll,
+            VisibleAreaScopeIds    = scope.VisibleAreaScopeIds,
+            TrabajadoresDeSusObras = scope.TrabajadoresDeSusObras,
         };
 
-        private static async Task<HashSet<int>> MisWorkerIdsAsync(AppDbContext ctx, int? userId)
-        {
-            if (!userId.HasValue) return new();
-            var ids = await (
-                from w in ctx.Worker
-                join per in ctx.Person on w.PersonId equals per.PersonId
-                where per.UserId == userId.Value
-                select w.Id
-            ).ToListAsync();
-            return ids.ToHashSet();
-        }
 
         public async Task<List<int>> GetWorkerIdsDePlanillas(IReadOnlyCollection<int> rendicionIds)
         {
@@ -488,40 +511,255 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                 .ToListAsync();
         }
 
-        /// <summary>Lo que la pantalla necesita para ofrecer (o no) el Consolidado del S10 de una fila.</summary>
+        // ── Aviso de rendición consolidada ───────────────────────────────────
+
+        public async Task<List<string>> GetCorreosTrabajadoresDePlanillas(IReadOnlyCollection<int> rendicionIds)
+        {
+            var ids = rendicionIds.Distinct().ToList();
+            if (ids.Count == 0) return new();
+
+            using var ctx = _factory.CreateDbContext();
+            return (await SalidasDeTrabajadoresAsync(ctx, ids))
+                .Where(s => !string.IsNullOrWhiteSpace(s.Email))
+                .Select(s => s.Email!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        public async Task<List<RendicionConsolidadaCorreoDatos>> GetRendicionConsolidadaCorreoDatos(int consolidadoId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // El documento: su código, el número del S10, el área (la del consolidador, la misma de
+            // la sigla del código) y quién lo adjuntó.
+            var doc = await (
+                from c   in ctx.GaConsolidadoS10.AsNoTracking()
+                join sc  in ctx.AreaScope on c.AreaScopeId equals (int?)sc.AreaScopeId into scGroup
+                from sc  in scGroup.DefaultIfEmpty()
+                join ai  in ctx.AreaItem on sc.AreaItemId equals ai.AreaItemId into aiGroup
+                from ai  in aiGroup.DefaultIfEmpty()
+                join per in ctx.Person on (int?)c.UploadedById equals per.UserId into perGroup
+                from per in perGroup.DefaultIfEmpty()
+                where c.Id == consolidadoId && c.State
+                select new
+                {
+                    c.Codigo,
+                    c.NumeroReembolso,
+                    Area         = ai != null ? ai.AreaItemName : null,
+                    Consolidador = per != null ? per.FullName : null,
+                }
+            ).FirstOrDefaultAsync();
+            if (doc == null) return new();
+
+            var rendicionIds = await ctx.GaConsolidadoS10Rendicion.AsNoTracking()
+                .Where(v => v.State && v.ConsolidadoS10Id == consolidadoId)
+                .Select(v => v.RendicionId)
+                .Distinct()
+                .ToListAsync();
+            if (rendicionIds.Count == 0) return new();
+
+            var salidas = await SalidasDeTrabajadoresAsync(ctx, rendicionIds);
+            if (salidas.Count == 0) return new();
+
+            var codigoDe = await ctx.GaRendicion.AsNoTracking()
+                .Where(r => rendicionIds.Contains(r.Id))
+                .Select(r => new { r.Id, r.Codigo })
+                .ToDictionaryAsync(r => r.Id, r => PlanillaRendicionHelper.CodigoRendicion(r.Codigo, r.Id));
+
+            var montoPorSalida = await MontoPorSalidaAsync(ctx, salidas);
+
+            return salidas
+                .GroupBy(s => new { s.RendicionId, s.WorkerId })
+                .Select(g => new RendicionConsolidadaCorreoDatos
+                {
+                    RendicionId       = g.Key.RendicionId,
+                    Codigo            = codigoDe.TryGetValue(g.Key.RendicionId, out var codigo)
+                                          ? codigo
+                                          : PlanillaRendicionHelper.CodigoRendicion(null, g.Key.RendicionId),
+                    TrabajadorEmail   = g.Select(s => s.Email).FirstOrDefault(e => !string.IsNullOrWhiteSpace(e)),
+                    MontoTrabajador   = g.Sum(s => montoPorSalida.GetValueOrDefault(s.SolicitudId)),
+                    ConsolidadoCodigo = doc.Codigo,
+                    Area              = doc.Area,
+                    NumeroReembolso   = doc.NumeroReembolso,
+                    Consolidador      = doc.Consolidador,
+                })
+                .OrderBy(d => d.Codigo, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        public async Task<List<RendicionEnPlanillaGrupalCorreoDatos>> GetRendicionEnPlanillaGrupalCorreoDatos(
+            int planillaGrupalId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // La planilla grupal: su código, el área (la de la sigla del código) y quién la preparó.
+            var doc = await (
+                from g   in ctx.GaPlanillaGrupal.AsNoTracking()
+                join sc  in ctx.AreaScope on g.AreaScopeId equals (int?)sc.AreaScopeId into scGroup
+                from sc  in scGroup.DefaultIfEmpty()
+                join ai  in ctx.AreaItem on sc.AreaItemId equals ai.AreaItemId into aiGroup
+                from ai  in aiGroup.DefaultIfEmpty()
+                join per in ctx.Person on (int?)g.PreparadaPorId equals per.UserId into perGroup
+                from per in perGroup.DefaultIfEmpty()
+                where g.Id == planillaGrupalId && g.State
+                select new
+                {
+                    g.Codigo,
+                    Area         = ai != null ? ai.AreaItemName : null,
+                    Consolidador = per != null ? per.FullName : null,
+                }
+            ).FirstOrDefaultAsync();
+            if (doc == null) return new();
+
+            var rendicionIds = await ctx.GaPlanillaGrupalRendicion.AsNoTracking()
+                .Where(v => v.State && v.PlanillaGrupalId == planillaGrupalId)
+                .Select(v => v.RendicionId)
+                .Distinct()
+                .ToListAsync();
+            if (rendicionIds.Count == 0) return new();
+
+            var salidas = await SalidasDeTrabajadoresAsync(ctx, rendicionIds);
+            if (salidas.Count == 0) return new();
+
+            var codigoDe = await ctx.GaRendicion.AsNoTracking()
+                .Where(r => rendicionIds.Contains(r.Id))
+                .Select(r => new { r.Id, r.Codigo })
+                .ToDictionaryAsync(r => r.Id, r => PlanillaRendicionHelper.CodigoRendicion(r.Codigo, r.Id));
+
+            var montoPorSalida = await MontoPorSalidaAsync(ctx, salidas);
+
+            return salidas
+                .GroupBy(s => new { s.RendicionId, s.WorkerId })
+                .Select(g => new RendicionEnPlanillaGrupalCorreoDatos
+                {
+                    RendicionId          = g.Key.RendicionId,
+                    Codigo               = codigoDe.TryGetValue(g.Key.RendicionId, out var codigo)
+                                             ? codigo
+                                             : PlanillaRendicionHelper.CodigoRendicion(null, g.Key.RendicionId),
+                    TrabajadorEmail      = g.Select(s => s.Email).FirstOrDefault(e => !string.IsNullOrWhiteSpace(e)),
+                    MontoTrabajador      = g.Sum(s => montoPorSalida.GetValueOrDefault(s.SolicitudId)),
+                    PlanillaGrupalCodigo = doc.Codigo,
+                    Area                 = doc.Area,
+                    Consolidador         = doc.Consolidador,
+                })
+                .OrderBy(d => d.Codigo, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        /// <summary>Una salida de una planilla, con su trabajador y el correo del usuario de este.</summary>
+        private sealed record SalidaDeTrabajador(
+            int SolicitudId, int RendicionId, int WorkerId, string? Subarea, string? Email);
+
+        /// <summary>
+        /// Las salidas de esas planillas con su trabajador. Es la ÚNICA fuente de a quién se le avisa
+        /// que su rendición se consolidó: la usan el preview y el envío, así que la confirmación no
+        /// puede prometer direcciones distintas de las que después reciben el correo.
+        /// </summary>
+        private static async Task<List<SalidaDeTrabajador>> SalidasDeTrabajadoresAsync(
+            AppDbContext ctx, List<int> rendicionIds)
+        {
+            var filas = await (
+                from s   in ctx.GaSolicitudSalida.AsNoTracking()
+                join w   in ctx.Worker on s.WorkerId equals w.Id
+                join per in ctx.Person on w.PersonId equals (int?)per.PersonId into perGroup
+                from per in perGroup.DefaultIfEmpty()
+                join u   in ctx.User on per.UserId equals (int?)u.UserId into uGroup
+                from u   in uGroup.DefaultIfEmpty()
+                where s.RendicionId != null && rendicionIds.Contains(s.RendicionId.Value)
+                select new
+                {
+                    s.Id,
+                    RendicionId = s.RendicionId!.Value,
+                    WorkerId    = w.Id,
+                    w.Subarea,
+                    Email       = u != null ? u.Email : null,
+                }
+            ).ToListAsync();
+
+            return filas
+                .Select(f => new SalidaDeTrabajador(f.Id, f.RendicionId, f.WorkerId, f.Subarea, f.Email))
+                .ToList();
+        }
+
+        /// <summary>
+        /// Cuánto se rindió en cada salida, con la MISMA regla que imprime la planilla
+        /// (<see cref="ImporteRendidoLoader"/>): es el monto que el trabajador ve en su PDF.
+        /// </summary>
+        private static async Task<Dictionary<int, decimal>> MontoPorSalidaAsync(
+            AppDbContext ctx, IReadOnlyCollection<SalidaDeTrabajador> salidas)
+        {
+            var subareaDe = salidas
+                .GroupBy(s => s.SolicitudId)
+                .ToDictionary(g => g.Key, g => g.First().Subarea);
+            var solicitudIds = subareaDe.Keys.ToList();
+
+            var trayectos = await ctx.GaSolicitudTrayecto.AsNoTracking()
+                .Where(t => solicitudIds.Contains(t.SolicitudId))
+                .Select(t => new { t.Id, t.SolicitudId, t.LugarOrigenId, t.LugarDestinoId })
+                .ToListAsync();
+
+            var importes = await ImporteRendidoLoader.LoadAsync(
+                ctx,
+                trayectos
+                    .Select(t => new ImporteRendidoLoader.TrayectoParaImporte(
+                        t.Id, subareaDe.GetValueOrDefault(t.SolicitudId), t.LugarOrigenId, t.LugarDestinoId))
+                    .ToList());
+
+            return trayectos
+                .GroupBy(t => t.SolicitudId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Sum(t => importes.TryGetValue(t.Id, out var imp) ? imp.Importe : 0m));
+        }
+
+        /// <summary>
+        /// Lo que la pantalla necesita para ofrecer (o no) la planilla grupal y el Consolidado del S10
+        /// de una fila.
+        /// </summary>
         private sealed class ConsolidacionFila
         {
+            public bool PuedePreparar { get; init; }
+            public PlanillaGrupalDto? PlanillaGrupal { get; init; }
             public bool PuedeAdjuntar { get; init; }
             public List<ConsolidadoConjuntoItemDto> Conjunto { get; init; } = new();
             public bool PuedeConsolidar { get; init; }
         }
 
         /// <summary>
-        /// Para cada planilla de la tabla: si admite el Consolidado del S10, qué planillas cubriría
-        /// el que se adjunte desde ella (su conjunto, ver <see cref="ConsolidadoS10Agrupacion"/>) y
-        /// si el usuario puede consolidar por TODOS los trabajadores de ese conjunto. Son las mismas
-        /// reglas que valida la subida, así que la pantalla no ofrece nada que el servidor vaya a
+        /// Para cada planilla de la tabla: si admite la planilla grupal y el Consolidado del S10, qué
+        /// planillas cubriría el que se adjunte desde ella (su planilla grupal entera, o las de su
+        /// consolidado actual, ver <see cref="ConsolidadoS10Agrupacion"/>) y si el usuario puede
+        /// consolidar por TODOS los trabajadores de ese conjunto. Son las mismas reglas que validan
+        /// la preparación y la subida, así que la pantalla no ofrece nada que el servidor vaya a
         /// rechazar. El permiso sale de <c>IConsolidadorResolver</c>, el mismo que alimenta la
         /// pantalla de Consolidadores: ver una planilla no habilita a hacerle el trámite, y el
         /// propio trabajador ya no consolida lo suyo.
         ///
         /// Un número fijo de consultas para toda la tabla —incluidas las planillas de fuera de la
-        /// tabla que cuelgan de un consolidado compartido— y una sola llamada al resolver.
+        /// tabla que comparten planilla grupal o consolidado con alguna fila— y una sola llamada al
+        /// resolver.
         /// </summary>
         private async Task<Dictionary<int, ConsolidacionFila>> ConsolidacionPorPlanillaAsync(
             AppDbContext ctx, int? userId, List<PlanillaRendicionLoader.PlanillaFila> planillas)
         {
             if (planillas.Count == 0) return new();
 
-            // Las planillas de la tabla y las demás de sus consolidados actuales: un consolidado
-            // compartido se reemplaza entero, así que el conjunto de una fila puede traer planillas
-            // que la tabla no muestra (otro filtro, otra área).
+            // La planilla grupal que espera su S10: solo la de las filas sin consolidado. Con el S10
+            // subido la planilla grupal viaja dentro del consolidado, con su copia firmada.
+            var preparadas = await PlanillaGrupalLoader.LoadPorRendicionAsync(
+                ctx, planillas.Where(p => p.ConsolidadoS10 == null).Select(p => p.Id).ToList());
+
+            // Las planillas de la tabla y las que comparten documento con ellas: el S10 se sube para
+            // la planilla grupal entera, y un consolidado compartido se reemplaza entero, así que el
+            // conjunto de una fila puede traer planillas que la tabla no muestra (otro filtro, otra
+            // área).
             var enTabla = planillas.ToDictionary(p => p.Id);
             var involucradas = planillas.Select(p => p.Id)
                 .Concat(planillas
                     .Where(p => p.ConsolidadoS10 != null)
                     .SelectMany(p => p.ConsolidadoS10!.Rendiciones)
                     .Select(r => r.Id))
+                .Concat(preparadas.Values.SelectMany(g => g.Rendiciones).Select(r => r.Id))
                 .Distinct()
                 .ToList();
 
@@ -534,12 +772,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             var codigoDe = planillas
                 .Where(p => p.ConsolidadoS10 != null)
                 .SelectMany(p => p.ConsolidadoS10!.Rendiciones)
+                .Concat(preparadas.Values.SelectMany(g => g.Rendiciones))
                 .GroupBy(r => r.Id)
                 .ToDictionary(g => g.Key, g => g.First().Codigo);
             foreach (var planilla in planillas) codigoDe[planilla.Id] = planilla.Codigo;
 
+            // Sin consolidado, el primero se sube sobre la planilla grupal entera (ella primero); con
+            // consolidado, lo que se reemplazaría junto con el actual.
             var conjuntos = planillas.ToDictionary(
-                p => p.Id, p => ConsolidadoS10Agrupacion.Conjunto(p.Id, p.ConsolidadoS10, agrupables));
+                p => p.Id,
+                p => p.ConsolidadoS10 == null && preparadas.TryGetValue(p.Id, out var grupal)
+                    ? grupal.Rendiciones.Select(r => r.Id).OrderBy(id => id == p.Id ? 0 : 1).ToList()
+                    : ConsolidadoS10Agrupacion.Conjunto(p.Id, p.ConsolidadoS10, agrupables));
 
             List<int> TrabajadoresDe(IEnumerable<int> rendicionIds) => rendicionIds
                 .SelectMany(id => agrupables.TryGetValue(id, out var a) ? a.WorkerIds : new List<int>())
@@ -548,21 +792,38 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
 
             var workerIds = TrabajadoresDe(conjuntos.Values.SelectMany(c => c));
 
-            var habilitado = userId == null || workerIds.Count == 0
-                ? new HashSet<int>()
-                : await _consolidadorResolver.FiltrarQuePuedeConsolidarAsync(userId.Value, workerIds);
+            // A quién puede consolidar el usuario y, en la misma resolución, quienes prepararon las
+            // planillas grupales de la tabla: la planilla que uno agrupó la sigue solo él
+            // (TramiteConsolidador), salvo que ya no pueda consolidar por esa gente.
+            var duenos = preparadas.Values.Select(g => g.PreparadaPorId).Where(id => id > 0).Distinct().ToList();
+            var habilitados = userId == null || workerIds.Count == 0
+                ? new Dictionary<int, HashSet<int>>()
+                : await _consolidadorResolver.FiltrarQuePuedenConsolidarAsync(
+                    duenos.Append(userId.Value).Distinct().ToList(), workerIds);
+            var habilitado = userId != null && habilitados.TryGetValue(userId.Value, out var delUsuario)
+                ? delUsuario
+                : new HashSet<int>();
 
             return planillas.ToDictionary(p => p.Id, p =>
             {
                 var conjunto     = conjuntos[p.Id];
                 var trabajadores = TrabajadoresDe(conjunto);
 
+                // Aprobada, con el reembolso abierto y sin S10: lo que admite la planilla grupal y
+                // el primer consolidado. Con un consolidado ya adjunto no: reemplazarlo es de
+                // Consolidados.
+                var abierta = p.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Aprobada
+                           && p.ConsolidadoS10 == null
+                           && agrupables.TryGetValue(p.Id, out var propia) && propia.ReembolsoAbierto;
+                preparadas.TryGetValue(p.Id, out var planillaGrupal);
+
                 return new ConsolidacionFila
                 {
-                    // Solo el primero: con un consolidado ya adjunto, reemplazarlo es de Consolidados.
-                    PuedeAdjuntar = p.EstadoPrimeraRevisionId == EstadosSalida.PrimeraRevision.Aprobada
-                                 && p.ConsolidadoS10 == null
-                                 && agrupables.TryGetValue(p.Id, out var propia) && propia.ReembolsoAbierto,
+                    // Una sola vez: la planilla grupal ya preparada no se rehace ni se reemplaza.
+                    PuedePreparar  = abierta && planillaGrupal == null,
+                    PlanillaGrupal = planillaGrupal,
+                    // Solo el primero, y sobre la planilla grupal ya preparada.
+                    PuedeAdjuntar  = abierta && planillaGrupal != null,
                     Conjunto = conjunto.Select(id => new ConsolidadoConjuntoItemDto
                     {
                         Id                 = id,
@@ -572,42 +833,74 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
                                                 : totalesFuera.GetValueOrDefault(id),
                     }).ToList(),
                     // El consolidado cubre los documentos enteros: hace falta poder por TODOS los
-                    // trabajadores del conjunto, también por los que la tabla no muestra.
-                    PuedeConsolidar = trabajadores.Count > 0 && trabajadores.All(habilitado.Contains),
+                    // trabajadores del conjunto, también por los que la tabla no muestra. Y una
+                    // planilla grupal ya preparada la sigue quien la preparó.
+                    PuedeConsolidar = userId != null && TramiteConsolidador.PuedeSeguir(
+                        userId.Value,
+                        planillaGrupal?.PreparadaPorId,
+                        trabajadores,
+                        habilitado,
+                        planillaGrupal != null ? habilitados.GetValueOrDefault(planillaGrupal.PreparadaPorId) : null),
                 };
             });
         }
 
         /// <summary>
-        /// Fichas del usuario cuyas salidas NO le toca decidir a él: la regla es "nadie decide lo
-        /// suyo", y la única excepción es que el revisor resuelto de esa ficha sea él mismo, o sea
-        /// que tenga el <b>jefe personalizado apuntándose a sí mismo</b> (Gestión de Ingresos →
-        /// ficha del trabajador → "Jefe personalizado").
+        /// De las planillas dadas, las que ESTE usuario puede decidir en primera revisión: aquellas
+        /// cuyo firmante resuelto es él.
         ///
-        /// La excepción no puede abrirse sin querer: el revisor que se deriva del área nunca es el
-        /// propio trabajador (lo descarta <c>JefeRevisorResolver</c> al subir por el árbol), así
-        /// que solo la abre esa elección explícita. Y se pregunta al MISMO resolver que decide a
-        /// quién se le manda el correo de la primera revisión, así que en la web decide exactamente
-        /// quien recibe ese correo — mismo criterio que <c>EnsurePuedeDecidirAsync</c> usa para
-        /// aprobar/rechazar la salida en Gestión de Salidas.
+        /// Cambió de forma el 2026-09-21. Antes era un guard NEGATIVO —"no decides lo tuyo"— y
+        /// alcanzaba con ver la planilla para poder aprobarla, así que recepción y GTH, que ven
+        /// todo, aprobaban la primera revisión de cualquiera. Ahora la planilla tiene UN firmante
+        /// (<c>ResolveFirmantesDeDocumentosAsync</c>), el mismo que firma su consolidado y el mismo
+        /// que recibe los correos, y solo él decide.
         ///
-        /// Devuelve un conjunto (no un booleano) porque el usuario puede tener varias fichas por
-        /// reingreso y el jefe personalizado puede estar puesto en una sola: la ficha con el revisor
-        /// propio se decide, las otras no.
+        /// Esto NO toca la visibilidad: las filas siguen saliendo de <c>SalidasVisibles</c>, así que
+        /// recepción y GTH ven exactamente lo mismo que antes — lo que pierden es el botón, que
+        /// nunca fue su trabajo. La visibilidad se administra aparte, en Gestión de Salidas →
+        /// Configuración → Visibilidad.
+        ///
+        /// "Nadie decide lo suyo" ya no hace falta como regla aparte: el algoritmo nunca señala a
+        /// alguien de dentro del documento. Solo lo decide quien fue elegido a mano (en su ficha o en
+        /// Revisores de Áreas), que es una elección explícita.
+        ///
+        /// Un número fijo de consultas: las fichas del usuario, un lote para todas las planillas y,
+        /// solo si algún firmante es el fallback de GTH, el árbol de áreas.
         /// </summary>
-        private async Task<HashSet<int>> MisWorkerIdsQueNoDecidoAsync(AppDbContext ctx, int? userId)
+        private async Task<HashSet<int>> PlanillasQueFirmoAsync(
+            AppDbContext ctx,
+            IReadOnlyDictionary<int, IReadOnlyCollection<int>> workersPorPlanilla,
+            int? userId)
         {
-            var mios = await MisWorkerIdsAsync(ctx, userId);
-            if (mios.Count == 0) return mios;
+            if (!userId.HasValue || workersPorPlanilla.Count == 0) return new();
 
-            var revisores = await _jefeResolver.ResolveManyAsync(mios.ToList());
+            var quien = await RevisorDeLaSalida.CargarQuienDecideAsync(ctx, userId);
+            if (quien.WorkerIds.Count == 0) return new();
 
-            return mios
-                .Where(id => !(revisores.TryGetValue(id, out var revisor)
-                               && revisor.WorkerId != null
-                               && mios.Contains(revisor.WorkerId.Value)))
+            var firmantes = await _jefeResolver.ResolveAprobadoresDeDocumentosAsync(
+                workersPorPlanilla, PasoAprobacion.PrimeraRevision);
+
+            var necesitaArbol = firmantes.Values.Any(
+                fs => fs.Count == 0 || fs.Any(f => f.Persona.WorkerId == null));
+            var arbol = necesitaArbol
+                ? await RevisorDeLaSalida.CargarArbolAsync(ctx)
+                : new Dictionary<int, (int? Padre, string Nombre)>();
+
+            // Basta con estar entre los aprobadores: si hacen falta varios, el turno lo valida la
+            // escritura. En obra la primera revision la aprueba solo el administrador, asi que casi
+            // siempre esta lista tiene un elemento.
+            return firmantes
+                .Where(kv => kv.Value.Any(f => RevisorDeLaSalida.EsElRevisor(quien, f.Persona, arbol)))
+                .Select(kv => kv.Key)
                 .ToHashSet();
         }
+
+        /// <summary>Los trabajadores de cada planilla, que es lo que identifica al documento.</summary>
+        private static Dictionary<int, IReadOnlyCollection<int>> WorkersPorPlanilla(
+            IEnumerable<PlanillaRendicionLoader.PlanillaFila> planillas)
+            => planillas.ToDictionary(
+                p => p.Id,
+                p => (IReadOnlyCollection<int>)p.Salidas.Select(s => s.WorkerId).Distinct().ToList());
 
         private static async Task<string?> ResolveAreaNombreAsync(AppDbContext ctx, int? areaScopeId)
         {
@@ -621,7 +914,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         }
 
         private static GestionRendicionListItemDto Armar(
-            PlanillaRendicionLoader.PlanillaFila p, HashSet<int> misWorkerIdsQueNoDecido,
+            PlanillaRendicionLoader.PlanillaFila p, HashSet<int> planillasQueFirmo,
             IReadOnlyDictionary<int, ConsolidacionFila> consolidacion) => new()
         {
             Id                 = p.Id,
@@ -652,12 +945,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             ObservacionReembolsoOrigen = EstadosSalida.OrigenObservacionReembolso.Nombre(
                 p.ObservacionReembolsoOrigenId),
             RevisorNotificadoAt  = p.RevisorNotificadoAt,
-            // Basta una salida suya que no le toque decidir para apagar la planilla entera: la
-            // primera revisión es del documento completo, no se puede aprobar "a medias".
-            PuedeDecidir       = !p.Salidas.Any(s => misWorkerIdsQueNoDecido.Contains(s.WorkerId)),
-            // Lo que resolvió ConsolidacionPorPlanillaAsync: qué cubriría el consolidado de esta
-            // fila, si se le puede adjuntar y si el usuario puede consolidar por TODOS sus trabajadores.
+            // La primera revisión es del documento completo y la decide su firmante: no se
+            // aprueba "a medias" ni la aprueba cualquiera que la vea.
+            PuedeDecidir       = planillasQueFirmo.Contains(p.Id),
+            // Lo que resolvió ConsolidacionPorPlanillaAsync: su planilla grupal, qué cubriría el
+            // consolidado de esta fila, si se le puede preparar la planilla o adjuntar el S10 y si el
+            // usuario puede consolidar por TODOS sus trabajadores.
+            PlanillaGrupal           = consolidacion[p.Id].PlanillaGrupal,
             PuedeConsolidar          = consolidacion[p.Id].PuedeConsolidar,
+            PuedePrepararPlanilla    = consolidacion[p.Id].PuedePreparar,
             PuedeAdjuntarConsolidado = consolidacion[p.Id].PuedeAdjuntar,
             ConsolidadoConjunto      = consolidacion[p.Id].Conjunto,
         };
@@ -671,6 +967,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             d.PdfUrl = o.PdfUrl; d.PdfFilename = o.PdfFilename;
             d.PdfFirmadoUrl = o.PdfFirmadoUrl; d.PdfFirmadoFilename = o.PdfFirmadoFilename;
             d.FirmadoAt = o.FirmadoAt; d.ConsolidadoS10 = o.ConsolidadoS10;
+            d.PlanillaGrupal = o.PlanillaGrupal;
             d.EstadoPrimeraRevision = o.EstadoPrimeraRevision; d.EnviadaRevisionAt = o.EnviadaRevisionAt;
             d.PrimeraRevisionAt = o.PrimeraRevisionAt;
             d.PrimeraRevisionObservacion = o.PrimeraRevisionObservacion;
@@ -680,6 +977,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
             d.ObservacionReembolsoOrigen = o.ObservacionReembolsoOrigen;
             d.RevisorNotificadoAt = o.RevisorNotificadoAt;
             d.PuedeDecidir = o.PuedeDecidir; d.PuedeConsolidar = o.PuedeConsolidar;
+            d.PuedePrepararPlanilla = o.PuedePrepararPlanilla;
             d.PuedeAdjuntarConsolidado = o.PuedeAdjuntarConsolidado;
             d.ConsolidadoConjunto = o.ConsolidadoConjunto;
         }

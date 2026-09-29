@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Constants;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Interfaces;
 using Abril_Backend.Shared.Constants;
@@ -13,7 +14,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 {
     [ApiController]
     [Route("api/v1/[controller]")]
-    [RequireFeature("mejora-continua.milestone-schedule")]
+    [RequireFeature(CronogramaHitosFeatures.Ver)]
     public class MilestoneScheduleHistoryController : ControllerBase
     {
         private readonly IMilestoneScheduleHistoryService _service;
@@ -45,16 +46,18 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             }
         }
 
+        /// <summary>Sube una versión nueva del cronograma: solo el residente del proyecto (rol
+        /// RESIDENTE + residente en Emails SSOMA), ver MilestoneScheduleHistoryService.Create.</summary>
         [Authorize]
         [HttpPost]
-        [RequireFeature("mejora-continua.milestone-schedule.editar")]
+        [RequireFeature(CronogramaHitosFeatures.Editar)]
         public async Task<IActionResult> Create([FromBody] MilestoneScheduleHistoryCreateDTO dto)
         {
             try
             {
                 var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-                var esAdminResidentes = User.IsInRole(Roles.AdministradorResidentes);
-                var result = await _service.Create(dto, userId, esAdminResidentes);
+                var esResidente = User.IsInRole(Roles.Residente);
+                var result = await _service.Create(dto, userId, esResidente);
 
                 if (result.Changes.Any())
                 {
@@ -78,10 +81,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             }
         }
 
-        /// <summary>Eliminar (soft-delete) una versión de cronograma ya creada — solo el
-        /// ADMINISTRADOR DE RESIDENTES puede hacerlo, en cualquier proyecto.</summary>
-        [Authorize(Roles = Roles.AdministradorResidentes)]
+        /// <summary>Eliminar (soft-delete) una versión de cronograma ya creada — solo quien
+        /// administra el cronograma, en cualquier proyecto.</summary>
+        [Authorize]
         [HttpDelete("{milestoneScheduleHistoryId:int}")]
+        [RequireFeature(CronogramaHitosFeatures.Administrar)]
         public async Task<IActionResult> Delete(int milestoneScheduleHistoryId)
         {
             try

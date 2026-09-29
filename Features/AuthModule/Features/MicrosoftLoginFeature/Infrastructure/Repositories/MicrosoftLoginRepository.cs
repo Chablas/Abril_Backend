@@ -205,16 +205,16 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
         {
             using var ctx = _factory.CreateDbContext();
 
-            // State && Active: mismo criterio con el que JefeRevisorResolver elige al revisor
-            // de una solicitud y con el que SalidaVisibilityResolver le da visibilidad de su
-            // área. No se filtra por Worker.Estado a propósito: la designación vive en
-            // area_revisores y es la que manda, igual que en esos dos resolvers.
+            // Asignado a mano en Revisores de Áreas para aprobar salidas, vivo y activo: mismo
+            // criterio con el que el resolver de los actores lo elige y con el que
+            // SalidaVisibilityResolver le da visibilidad de su área. No se filtra por el estado de la
+            // ficha a propósito: la designación es la que manda, igual que en esos dos.
             return await (
-                from r in ctx.AreaRevisores.AsNoTracking()
-                where r.State && r.Active
-                join w in ctx.Worker.AsNoTracking() on r.RevisorId equals w.Id
+                from a in ctx.AreaActorAsignacion.AsNoTracking()
+                where a.State && a.Active && a.GaActorId == ActorIds.AprobadorSalida
+                join w in ctx.Worker.AsNoTracking() on a.WorkerId equals w.Id
                 where w.PersonId == personId
-                select r.AreaRevisoresId
+                select a.AreaActorAsignacionId
             ).AnyAsync();
         }
 

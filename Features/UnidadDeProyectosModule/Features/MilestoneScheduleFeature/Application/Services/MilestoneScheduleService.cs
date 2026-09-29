@@ -1,6 +1,5 @@
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
-using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Repositories;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Interfaces;
@@ -12,31 +11,31 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
     {
         private readonly IMilestoneScheduleRepository _repository;
         private readonly MilestoneRepository _milestoneRepository;
-        private readonly IProjectResidentRepository _projectResidentRepository;
+        private readonly ICronogramaPermisosRepository _permisosRepository;
 
         public MilestoneScheduleService(
             IMilestoneScheduleRepository repository,
             MilestoneRepository milestoneRepository,
-            IProjectResidentRepository projectResidentRepository)
+            ICronogramaPermisosRepository permisosRepository)
         {
             _repository = repository;
             _milestoneRepository = milestoneRepository;
-            _projectResidentRepository = projectResidentRepository;
+            _permisosRepository = permisosRepository;
         }
 
-        /// <summary>Solo el residente asignado al proyecto dueño del hito puede editarlo — el
-        /// featureKey "mejora-continua.milestone-schedule.editar" es por rol, no por proyecto,
-        /// así que cualquier RESIDENTE podía editar el cronograma de cualquier obra sin esto.
-        /// El rol ADMINISTRADOR DE RESIDENTES está exento de este chequeo (ver llamadores).</summary>
-        private async Task ValidarResidenteDelProyectoAsync(int milestoneScheduleId, int userId)
+        /// <summary>Culminar o marcar crítico un hito guardado: quien administra el cronograma (en
+        /// cualquier proyecto) o el residente del proyecto dueño del hito. El featureKey
+        /// "mejora-continua.milestone-schedule.editar" es por rol, no por proyecto, así que sin
+        /// este chequeo cualquier RESIDENTE editaría el cronograma de cualquier obra.</summary>
+        private async Task ValidarEdicionAsync(int milestoneScheduleId, int userId, int[] roleIds, bool esResidente)
         {
             var projectId = await _repository.GetProjectIdByMilestoneScheduleId(milestoneScheduleId);
             if (projectId == null)
                 throw new AbrilException("Hito no encontrado.", 404);
 
-            var esResidenteAsignado = await _projectResidentRepository.IsUserAssignedToProject(userId, projectId.Value);
-            if (!esResidenteAsignado)
-                throw new AbrilException("No estás asignado como residente de este proyecto.", 403);
+            var puedeEditar = await _permisosRepository.PuedeEditarProyectoAsync(userId, roleIds, esResidente, projectId.Value);
+            if (!puedeEditar)
+                throw new AbrilException("No tienes permiso para modificar el cronograma de este proyecto.", 403);
         }
 
         public Task<List<MilestoneScheduleDTO>> GetAllByMilestoneScheduleHistoryId(int milestoneScheduleHistoryId)
@@ -101,29 +100,25 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                 .ToList();
         }
 
-        public async Task CulminarAsync(int milestoneScheduleId, DateOnly? fechaRealFin, int userId, bool esAdminResidentes)
+        public async Task CulminarAsync(int milestoneScheduleId, DateOnly? fechaRealFin, int userId, int[] roleIds, bool esResidente)
         {
-            if (!esAdminResidentes)
-                await ValidarResidenteDelProyectoAsync(milestoneScheduleId, userId);
+            await ValidarEdicionAsync(milestoneScheduleId, userId, roleIds, esResidente);
             await _repository.CulminarAsync(milestoneScheduleId, fechaRealFin, userId);
         }
 
-        public async Task MarcarCriticoAsync(int milestoneScheduleId, bool esHitoCritico, int userId, bool esAdminResidentes)
+        public async Task MarcarCriticoAsync(int milestoneScheduleId, bool esHitoCritico, int userId, int[] roleIds, bool esResidente)
         {
-            if (!esAdminResidentes)
-                await ValidarResidenteDelProyectoAsync(milestoneScheduleId, userId);
+            await ValidarEdicionAsync(milestoneScheduleId, userId, roleIds, esResidente);
             await _repository.MarcarCriticoAsync(milestoneScheduleId, esHitoCritico, userId);
         }
 
-        /// <summary>Editar un hito ya guardado es exclusivo de ADMINISTRADOR DE RESIDENTES (igual que
-        /// DeleteAsync en MilestoneScheduleHistoryService) — el [Authorize(Roles=...)] en el
-        /// controller ya filtra el acceso, no hace falta el chequeo por proyecto de
-        /// ValidarResidenteDelProyectoAsync porque un RESIDENTE normal nunca llega hasta acá.</summary>
+        /// <summary>Editar un hito ya guardado es exclusivo de quien administra el cronograma (igual
+        /// que DeleteAsync en MilestoneScheduleHistoryService): el [RequireFeature] del controller
+        /// ya filtra el acceso y vale para cualquier proyecto, así que no hay chequeo por proyecto.</summary>
         public Task EditAsync(int milestoneScheduleId, MilestoneScheduleEditDTO dto, int userId)
             => _repository.EditAsync(milestoneScheduleId, dto, userId);
 
-        /// <summary>Agregar un hito nuevo a una history ya existente es exclusivo de ADMINISTRADOR
-        /// DE RESIDENTES, mismo alcance que EditAsync.</summary>
+        /// <summary>Agregar un hito nuevo a una history ya existente: mismo alcance que EditAsync.</summary>
         public Task<MilestoneScheduleDTO> AddHitoAsync(int milestoneScheduleHistoryId, MilestoneScheduleAddDTO dto, int userId)
             => _repository.AddHitoAsync(milestoneScheduleHistoryId, dto, userId);
 

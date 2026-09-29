@@ -6,19 +6,20 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
 {
     public interface IProjectRepository
     {
-        Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null);
-        Task Create(ProjectCreateDto dto, int userId);
-        Task Update(ProjectEditDto dto, int userId);
+        Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null, int? projectTipoId = null, int? projectCicloVidaId = null);
+        Task<(List<ProjectCatalogoDto> Tipos, List<ProjectCatalogoDto> CiclosVida)> GetCatalogos();
+        Task Create(ProjectCreateDto dto, int userId, bool puedeAsignarResidente);
+        Task Update(ProjectEditDto dto, int userId, bool puedeAsignarResidente);
         Task<bool> DeleteSoftAsync(int projectId, int userId);
         Task<Contributor?> FindContributorByRuc(string ruc);
         Task<Contributor> CreateContributor(string ruc, string name, string address, string economicActivity, string? district, string? province, string? department, int userId);
         Task UpdateContributorLocationAsync(int contributorId, string? district, string? province, string? department);
-        Task UpdateEmails(int id, ProjectEmailsUpdateDto dto);
-        Task<ProjectEmailsDto?> GetEmails(int projectId);
         Task<bool?> ToggleArquitecturaComercial(int projectId);
         Task<bool?> SetTieneUnidadDeProyectos(int projectId, bool value);
         Task<ProjectLookupsDto> GetLookups();
         Task<List<int>> GetMyProjectIds(int userId);
         Task<MyWorkerDto?> GetMyWorker(int userId);
+        Task<List<ProjectTorreDto>> GetTorres(int projectId);
+        Task SetTorres(int projectId, List<ProjectTorreGuardarDto> torres);
     }
 }

@@ -4,7 +4,7 @@ public class DriverProyectoDto
 {
     public int    ProjectId          { get; set; }
     public string ProjectDescription { get; set; } = null!;
-    public string Estado             { get; set; } = null!;   // Activo / Finalizado / Inactivo
+    public string Estado             { get; set; } = null!;   // Código del ciclo de vida: ACTIVO / FINALIZADO / INACTIVO
     public decimal? HhTotalCasa      { get; set; }
     public decimal? AreaTechadaM2    { get; set; }
     public int?   Trabajadores       { get; set; }

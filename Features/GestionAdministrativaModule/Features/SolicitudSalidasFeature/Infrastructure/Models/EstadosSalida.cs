@@ -130,11 +130,12 @@
             public static readonly int[] VisiblesParaTesoreria = { Firmado, PorPagar, Pagado };
 
             /// <summary>
-            /// Los dos estados desde los que Tesorería puede observar: lo que tiene por revisar y
-            /// lo que ya revisó pero todavía no pagó (RG-49 — "antes de autorizar el pago"). Lo
-            /// pagado es terminal y no se devuelve.
+            /// Desde dónde puede observar Tesorería (RG-49): solo lo que todavía tiene por revisar.
+            /// Confirmar la revisión es su visto bueno y desde ahí el consolidado sigue al pago —si
+            /// después aparece un error, ya no se devuelve (pedido del área usuaria, 2026-09-24)—.
+            /// Lo pagado tampoco vuelve: es terminal.
             /// </summary>
-            public static readonly int[] ObservablesPorTesoreria = { Firmado, PorPagar };
+            public static readonly int[] ObservablesPorTesoreria = { Firmado };
 
             /// <summary>
             /// Los dos estados en los que el reembolso sigue ABIERTO: se puede adjuntar o
@@ -174,6 +175,18 @@
                 Jefatura  => NombreJefatura,
                 Tesoreria => NombreTesoreria,
                 _         => string.Empty,
+            };
+
+            /// <summary>
+            /// nombre → id, o null si no es ninguno. La vuelta de <see cref="Nombre"/>: las
+            /// pantallas de planillas y de consolidados resumen el origen a su nombre y el pipeline
+            /// del detalle necesita el id para saber si el rojo va en la firma o en Tesorería.
+            /// </summary>
+            public static int? IdFromNombre(string? nombre) => nombre?.Trim() switch
+            {
+                NombreJefatura  => Jefatura,
+                NombreTesoreria => Tesoreria,
+                _               => null,
             };
         }
 
@@ -238,8 +251,10 @@
         /// vuelve a adjuntar el consolidado (eso devuelve el reembolso a
         /// <see cref="Reembolso.Pendiente"/> y da de baja la corrección).
         ///
-        /// Los nombres son los dos estados que el requerimiento lista en §6.1 y describen quién
-        /// tiene que actuar, no qué pasó: es lo que la pantalla muestra.
+        /// El primer nombre dice quién tiene que actuar (el ERP). El segundo, «Atendido», dice qué
+        /// pasó: quien lo lee es el Coordinador ERP en su bandeja, y para él el pedido ya terminó.
+        /// La recarga que falta es del consolidador, y Consolidados la rotula aparte
+        /// («Por recargar»).
         /// Los ids reflejan las filas de <c>ga_estado_correccion_s10</c>.
         /// </summary>
         public static class CorreccionS10
@@ -253,7 +268,7 @@
             public const int Atendida   = 2;
 
             public const string NombreSolicitada = "Pendiente de corrección S10";
-            public const string NombreAtendida   = "Pendiente de recarga S10";
+            public const string NombreAtendida   = "Atendido";
 
             /// <summary>id → nombre para exponer en DTOs.</summary>
             public static string Nombre(int id) => id switch

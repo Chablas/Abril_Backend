@@ -1,5 +1,6 @@
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Shared.Models {
     public class Project {
@@ -10,8 +11,21 @@ namespace Abril_Backend.Shared.Models {
         public string? Abbreviation {get; set;}
         public string? LevelDescription {get; set;}
 
-        // Estado del proyecto (vigente, finalizado, etc.)
-        public string? Estado {get; set;}
+        /// <summary>
+        /// Qué es la fila: proyecto de verdad (edificio que se vende al público), FFT, la Oficina
+        /// Central, un área interna o el proyecto de prueba. Ver <see cref="ProjectTipoIds"/> y, para
+        /// «¿se trata como obra?», <see cref="ProjectTipo.EsObra"/>. Navegación en <see cref="Tipo"/>.
+        /// </summary>
+        public int ProjectTipoId {get; set;} = ProjectTipoIds.Proyecto;
+        public ProjectTipo? Tipo {get; set;}
+
+        /// <summary>
+        /// Ciclo de vida: activo, finalizado o inactivo (<see cref="ProjectCicloVidaIds"/>). Es la
+        /// única fuente: reemplazó a las columnas estado, activo y operativo. No confundir con
+        /// <see cref="Active"/>, que es de sistema (si aparece en filtros y desplegables).
+        /// </summary>
+        public int ProjectCicloVidaId {get; set;} = ProjectCicloVidaIds.Activo;
+        public ProjectCicloVida? CicloVida {get; set;}
 
         // Contribuyente / razón social
         public int? ContributorId {get; set;}
@@ -85,8 +99,6 @@ namespace Abril_Backend.Shared.Models {
         public string? CantTrabajadoresCasa {get; set;}
         /// <summary>HH_REAL | HH_PROYECTADO | HH_CALCULADO_MEDIANA</summary>
         public string? HhFuente {get; set;}
-        /// <summary>Estado del ciclo de vida: Finalizado | Activo | Inactivo</summary>
-        public string? Activo {get; set;}
 
         // Contadores
         public int ContadorIncidentes {get; set;}
@@ -97,7 +109,6 @@ namespace Abril_Backend.Shared.Models {
         // Flags
         public bool TieneArquitecturaComercial {get; set;}
         public bool TieneUnidadDeProyectos {get; set;}
-        public bool Operativo { get; set; } = true;
 
         // Foto
         public string? FotoUrl {get; set;}
@@ -123,5 +134,24 @@ namespace Abril_Backend.Shared.Models {
 
         // Navegaciones
         public List<ResidentReportIncidence> Incidences { get; set; }
+    }
+
+    /// <summary>
+    /// Una torre/bloque de un proyecto (A, B, C...), con la cantidad de sótanos/pisos/cisternas
+    /// que tiene — de ahí se arma la lista de niveles (Sótano 1..N, Piso 1..N, Cisterna 1..N,
+    /// Azotea siempre al final) que usan los selectores de "Lugar" en RAC/ATS, en vez de texto
+    /// libre. Opcional al crear el proyecto, editable después en Configuración → Proyectos.
+    /// </summary>
+    public class ProjectTorre
+    {
+        public int Id { get; set; }
+        public int ProjectId { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public short Orden { get; set; }
+        public int CantidadSotanos { get; set; }
+        public int CantidadPisos { get; set; }
+        public int CantidadCisternas { get; set; }
+
+        public Project? Project { get; set; }
     }
 }

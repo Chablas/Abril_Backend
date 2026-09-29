@@ -12,17 +12,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
         Task<List<SsCriterioEvaluacion>> GetCriteriosEvaluacionAsync();
 
         /// <summary>
-        /// Árbol de áreas con la equivalencia legacy y el revisor resueltos por nodo. Reemplaza a
+        /// Árbol de áreas con la equivalencia legacy resuelta por nodo. Reemplaza a
         /// GetAreasAsync/GetSubareasAsync en el formulario de trabajadores, que ahora elige el nodo
         /// del árbol en vez de los textos area/subarea.
         /// </summary>
-        /// <param name="workerId">
-        /// Trabajador que se está editando. Con él, el revisor de cada nodo viene ya elegido
-        /// descartándolo a él (nadie es su propio jefe) — es lo que necesita el formulario. Sin él
-        /// (alta nueva, o pantallas que solo usan el árbol para los desplegables) no se descarta a
-        /// nadie y el revisor es el primero de la rama.
-        /// </param>
-        Task<List<AreaArbolNodoDto>> GetAreaArbolAsync(int? workerId = null);
+        Task<List<AreaArbolNodoDto>> GetAreaArbolAsync();
+
+        /// <summary>
+        /// Los cinco actores de un trabajador para su ficha (ver <c>IActoresResolver</c>): lo que le
+        /// toca por su área y lo personalizado en su ficha. El área y la categoría salen del
+        /// <paramref name="puestoId"/> y la obra es <paramref name="proyectoId"/>: son los del
+        /// formulario, que pueden no ser todavía los guardados.
+        /// </summary>
+        /// <param name="workerId">La ficha que se edita (su persona y sus personalizados); null al crear.</param>
+        Task<ActoresTrabajadorDto> GetActoresAsync(int? workerId, int? puestoId, int? proyectoId);
 
         /// <summary>
         /// Catálogo Obra / Staff / Oficina Central (workers_obra_oficina_staff). Es el

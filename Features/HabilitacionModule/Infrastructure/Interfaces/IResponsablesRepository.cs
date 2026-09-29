@@ -5,7 +5,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces
     public interface IResponsablesRepository
     {
         Task<ResponsablesDto> GetAll();
-        Task UpdateRazonSocial(int contributorId, ResponsableRazonSocialUpdateDto dto);
-        Task UpdateProyecto(int projectId, ResponsableProyectoUpdateDto dto);
+        Task UpdateRazonSocial(int contributorId, ResponsableRazonSocialUpdateDto dto, int? userId);
+        Task UpdateProyecto(int projectId, ResponsableProyectoUpdateDto dto, int? userId, bool puedeAsignarResidente);
     }
 }

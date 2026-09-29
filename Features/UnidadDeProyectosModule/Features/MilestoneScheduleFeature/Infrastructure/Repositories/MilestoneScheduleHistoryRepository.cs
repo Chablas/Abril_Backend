@@ -36,6 +36,13 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                     ProjectId = item.ProjectId,
                     CreatedDateTime = item.CreatedDateTime,
                     CreatedUserId = item.CreatedUserId,
+                    // Subconsulta y no JOIN: si un usuario tuviera dos personas, un JOIN duplicaría
+                    // la versión en el historial.
+                    CreatedUserFullName = ctx.Person
+                        .Where(pe => pe.UserId == item.CreatedUserId)
+                        .OrderBy(pe => pe.PersonId)
+                        .Select(pe => pe.FullName)
+                        .FirstOrDefault(),
                     UpdatedDateTime = item.UpdatedDateTime,
                     UpdatedUserId = item.UpdatedUserId,
                     Active = item.Active
@@ -244,7 +251,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         }
 
         /// <summary>Soft-delete de una versión de cronograma completa (la cabecera y sus hitos).
-        /// Solo lo puede llamar ADMINISTRADOR DE RESIDENTES (gateado en el controller).</summary>
+        /// Solo con la feature mejora-continua.milestone-schedule.administrar (gateado en el
+        /// controller).</summary>
         public async Task DeleteAsync(int milestoneScheduleHistoryId, int userId)
         {
             using var ctx = _factory.CreateDbContext();

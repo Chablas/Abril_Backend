@@ -106,10 +106,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             {
                 await ApplyVisibilityAsync(scope);
 
-                // Adjuntar el consolidado no es una decisión de la primera revisión: su correo va a
-                // la JEFATURA de los trabajadores que cubre, no al solicitante.
+                // Adjuntar el consolidado no es una decisión de la primera revisión: sus correos van a
+                // la JEFATURA que tiene que firmarlo y a los TRABAJADORES cuyas rendiciones incluye.
                 if (request.Accion == CorreoPreviewAcciones.ConsolidadoS10)
-                    return await PreviewAvisoJefaturaAsync(request.RendicionIds);
+                    return await PreviewAdjuntarConsolidadoAsync(request.RendicionIds);
+
+                // Preparar la planilla grupal solo les avisa a los trabajadores de sus rendiciones.
+                if (request.Accion == CorreoPreviewAcciones.PlanillaGrupal)
+                    return await PreviewPlanillaGrupalAsync(request.RendicionIds);
 
                 var preview = await _repo.GetPreviewPrimeraRevision(
                     request.RendicionIds, scope, conTrabajadores: request.Aprobar);
@@ -141,14 +145,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         }
 
         /// <summary>
-        /// A quién le va a llegar el aviso que dispara adjuntar el Consolidado del S10: la jefatura
-        /// de los trabajadores de esas planillas.
+        /// A quién le van a llegar los avisos que dispara adjuntar el Consolidado del S10: la
+        /// jefatura de los trabajadores de esas planillas y los propios trabajadores, a los que se
+        /// les avisa que su rendición quedó incluida.
         ///
         /// Se resuelve desde las PLANILLAS y no desde el consolidado —que todavía no existe cuando
-        /// se pregunta— pero con el mismo resolver de jefe/revisor que usa el envío, así que la
+        /// se pregunta— pero con los mismos resolvers y consultas que usa el envío, así que la
         /// confirmación no puede prometer direcciones distintas de las que después reciben el correo.
         /// </summary>
-        private async Task<List<CorreoAvisoPreviewDto>> PreviewAvisoJefaturaAsync(
+        private async Task<List<CorreoAvisoPreviewDto>> PreviewAdjuntarConsolidadoAsync(
             IReadOnlyCollection<int> rendicionIds)
         {
             var avisos = new List<CorreoAvisoPreviewDto>();
@@ -159,14 +164,44 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             var workerIds = await _repo.GetWorkerIdsDePlanillas(ids);
             if (workerIds.Count == 0) return avisos;
 
-            var jefaturas = (await _jefeResolver.ResolveManyAsync(workerIds))
-                .Values
-                .Select(r => r.Email?.Trim() ?? string.Empty)
-                .Where(email => email.Length > 0)
+            // Quién va a firmar el consolidado que se está por adjuntar. Se pregunta al MISMO
+            // resolver que después manda el correo y que habilita el botón, así que la confirmación
+            // no puede anunciar a alguien que no va a poder firmar.
+            var firmantes = await _jefeResolver.ResolveAprobadoresDeDocumentoAsync(
+                workerIds, PasoAprobacion.Consolidado);
+
+            // Y solo al PRIMERO: el documento todavía no existe, así que no hay ninguna firma
+            // puesta y en obra el residente recién se entera cuando el administrador firme.
+            var jefaturas = FirmaEnTurno.De(firmantes, new HashSet<int>())
+                .Select(f => f.Persona.Email?.Trim() ?? string.Empty)
+                .Where(e => e.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             await AgregarAvisoAsync(avisos, "A la jefatura", CorreoEventoCodigos.S10Revisor, jefaturas);
+
+            await AgregarAvisoAsync(
+                avisos, "A los trabajadores", CorreoEventoCodigos.RendicionIncluidaConsolidado,
+                await _repo.GetCorreosTrabajadoresDePlanillas(ids));
+            return avisos;
+        }
+
+        /// <summary>
+        /// A quién le llega el aviso que dispara preparar la planilla grupal: los trabajadores de
+        /// esas planillas, con la misma consulta que usa el envío
+        /// (<see cref="NotificarRendicionesEnPlanillaGrupalAsync"/>).
+        /// </summary>
+        private async Task<List<CorreoAvisoPreviewDto>> PreviewPlanillaGrupalAsync(
+            IReadOnlyCollection<int> rendicionIds)
+        {
+            var avisos = new List<CorreoAvisoPreviewDto>();
+
+            var ids = rendicionIds.Where(id => id > 0).Distinct().ToList();
+            if (ids.Count == 0) return avisos;
+
+            await AgregarAvisoAsync(
+                avisos, "A los trabajadores", CorreoEventoCodigos.RendicionIncluidaPlanillaGrupal,
+                await _repo.GetCorreosTrabajadoresDePlanillas(ids));
             return avisos;
         }
 
@@ -222,6 +257,74 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             };
         }
 
+        public async Task<PlanillaGrupalDto> PrepararPlanillaGrupal(IReadOnlyCollection<int> rendicionIds, int userId)
+        {
+            var ids = rendicionIds?.Where(id => id > 0).Distinct().ToList() ?? new List<int>();
+            if (ids.Count == 0)
+                throw new AbrilException("Selecciona al menos una rendición.", 400);
+
+            await ExigirConsolidadorAsync(ids, userId, "preparar la planilla grupal de esta planilla");
+
+            var planilla = await _consolidadoService.PrepararPlanillaGrupal(ids, userId);
+
+            await NotificarRendicionesEnPlanillaGrupalAsync(planilla.Id);
+
+            return planilla;
+        }
+
+        /// <summary>
+        /// Le avisa a cada trabajador que su rendición quedó incluida en la planilla grupal recién
+        /// preparada: UNO por (planilla, trabajador), con el botón a su rendición en Mis
+        /// Rendiciones. Es el mismo molde que el aviso de rendición consolidada, un paso antes.
+        /// Respeta Gestión de Rendiciones → Configuración → Correos.
+        ///
+        /// Best-effort: la planilla ya quedó preparada y un correo que no sale no puede deshacerla.
+        /// </summary>
+        private async Task NotificarRendicionesEnPlanillaGrupalAsync(int planillaGrupalId)
+        {
+            try
+            {
+                var layout = SalidaEmailLayout.Desde(_configuration);
+
+                foreach (var d in await _repo.GetRendicionEnPlanillaGrupalCorreoDatos(planillaGrupalId))
+                {
+                    if (string.IsNullOrWhiteSpace(d.TrabajadorEmail))
+                    {
+                        _logger.LogWarning(
+                            "Rendición {RendicionId}: el trabajador no tiene correo registrado, no se le avisó que entró en una planilla grupal.",
+                            d.RendicionId);
+                        continue;
+                    }
+
+                    var envio = await _correoResolver.ResolveEnvioAsync(
+                        CorreoEventoCodigos.RendicionIncluidaPlanillaGrupal, new List<string> { d.TrabajadorEmail });
+
+                    if (!envio.Enviar)
+                    {
+                        _logger.LogInformation(
+                            "Correo {Codigo} no enviado para la planilla grupal {PlanillaGrupalId}: está apagado o sin destinatarios.",
+                            CorreoEventoCodigos.RendicionIncluidaPlanillaGrupal, planillaGrupalId);
+                        return; // la configuración es del correo, no del destinatario: no hay caso de seguir
+                    }
+
+                    var url = SalidaEnlaces.Rendiciones(_configuration, d.RendicionId);
+
+                    await _emailService.SendAsync(
+                        to: envio.Para,
+                        subject: $"Rendición {d.Codigo} incluida en la planilla grupal {d.PlanillaGrupalCodigo}",
+                        body: ReembolsoEmailTemplates.RendicionEnPlanillaGrupal(layout, d, url),
+                        isHtml: true,
+                        cc: envio.Copia.Count > 0 ? envio.Copia : null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error avisando a los trabajadores de la planilla grupal {PlanillaGrupalId} recién preparada",
+                    planillaGrupalId);
+            }
+        }
+
         public async Task<ConsolidadoS10UploadResultDto> UploadConsolidadoS10(
             IReadOnlyCollection<int> rendicionIds, IFormFile file, decimal montoTotal, string numeroReembolso,
             int userId, bool seesAllOverride)
@@ -230,25 +333,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
             if (ids.Count == 0)
                 throw new AbrilException("Selecciona al menos una rendición.", 400);
 
-            // Ver las planillas no alcanza para consolidarlas: hay que ser consolidador de TODOS sus
-            // trabajadores (el consolidado cubre los documentos enteros). El resolver es el mismo
-            // que apaga el botón en la pantalla, así que acá no puede pasar nada que la UI no muestre.
-            // El propio trabajador no consolida lo suyo: después de la primera revisión, el trámite
-            // del S10 es del consolidador de su área.
-            var workerIds = await _repo.GetWorkerIdsDePlanillas(ids);
-            if (workerIds.Count == 0)
-                throw new AbrilException(
-                    ids.Count == 1
-                        ? "La planilla de rendición no existe."
-                        : "Las planillas de rendición seleccionadas no existen.", 404);
-
-            var habilitado = await _consolidadorResolver.FiltrarQuePuedeConsolidarAsync(userId, workerIds);
-            if (workerIds.Any(id => !habilitado.Contains(id)))
-                throw new AbrilException(
-                    (ids.Count == 1
-                        ? "No estás habilitado para adjuntar el Consolidado del S10 de esta planilla. "
-                        : "No estás habilitado para consolidar por todos los trabajadores de estas planillas. ")
-                    + "Solo pueden hacerlo los consolidadores de su área (Consolidados → Configuración).", 403);
+            await ExigirConsolidadorAsync(ids, userId, "adjuntar el Consolidado del S10 de esta planilla");
 
             // Acá solo se adjunta el PRIMERO. Corregirlo —casi siempre por una observación— es de
             // Consolidados, que es donde vuelve la observación y donde se ve el documento entero.
@@ -274,6 +359,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
 
             var (avisada, aviso) = await AvisarJefaturaAsync(consolidado.Id, userId, seesAllOverride);
 
+            // Solo acá y no al reemplazarlo desde Consolidados: ahí las rendiciones ya estaban
+            // consolidadas y el aviso llegaría repetido.
+            await NotificarRendicionesConsolidadasAsync(consolidado.Id);
+
             return new ConsolidadoS10UploadResultDto
             {
                 Consolidado     = consolidado,
@@ -283,9 +372,91 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
         }
 
         /// <summary>
-        /// Le avisa a la jefatura que el consolidado recién adjunto tiene reembolsos esperando su
-        /// firma. Es el MISMO camino que el botón «Avisar a la jefatura» de Consolidados —mismo
-        /// correo, mismos destinatarios, misma configuración y misma marca de avisado— para que las
+        /// Ver las planillas no alcanza para hacerles el trámite del S10 —preparar su planilla grupal
+        /// o adjuntarles el consolidado—: hay que ser consolidador de TODOS sus trabajadores (los dos
+        /// documentos cubren las planillas enteras). El resolver es el mismo que apaga los botones en
+        /// la pantalla, así que acá no puede pasar nada que la UI no muestre. El propio trabajador no
+        /// consolida lo suyo: después de la primera revisión, el trámite del S10 es del consolidador
+        /// de su área.
+        /// </summary>
+        /// <param name="queHace">Lo que no puede hacer, para el mensaje de una sola planilla.</param>
+        private async Task ExigirConsolidadorAsync(List<int> ids, int userId, string queHace)
+        {
+            var workerIds = await _repo.GetWorkerIdsDePlanillas(ids);
+            if (workerIds.Count == 0)
+                throw new AbrilException(
+                    ids.Count == 1
+                        ? "La planilla de rendición no existe."
+                        : "Las planillas de rendición seleccionadas no existen.", 404);
+
+            var habilitado = await _consolidadorResolver.FiltrarQuePuedeConsolidarAsync(userId, workerIds);
+            if (workerIds.Any(id => !habilitado.Contains(id)))
+                throw new AbrilException(
+                    (ids.Count == 1
+                        ? $"No estás habilitado para {queHace}. "
+                        : "No estás habilitado para consolidar por todos los trabajadores de estas planillas. ")
+                    + "Solo pueden hacerlo los consolidadores de su área (Configuración → Revisores de Áreas).", 403);
+        }
+
+        /// <summary>
+        /// Le avisa a cada trabajador que su rendición quedó incluida en el consolidado recién
+        /// adjunto: UNO por (planilla, trabajador), con el botón a su rendición en Mis Rendiciones.
+        /// Respeta Gestión de Rendiciones → Configuración → Correos.
+        ///
+        /// Best-effort, igual que el aviso a la jefatura: el consolidado ya quedó adjunto y un correo
+        /// que no sale no puede deshacerlo.
+        /// </summary>
+        private async Task NotificarRendicionesConsolidadasAsync(int consolidadoId)
+        {
+            try
+            {
+                var layout = SalidaEmailLayout.Desde(_configuration);
+
+                foreach (var d in await _repo.GetRendicionConsolidadaCorreoDatos(consolidadoId))
+                {
+                    if (string.IsNullOrWhiteSpace(d.TrabajadorEmail))
+                    {
+                        _logger.LogWarning(
+                            "Rendición {RendicionId}: el trabajador no tiene correo registrado, no se le avisó que quedó consolidada.",
+                            d.RendicionId);
+                        continue;
+                    }
+
+                    var envio = await _correoResolver.ResolveEnvioAsync(
+                        CorreoEventoCodigos.RendicionIncluidaConsolidado, new List<string> { d.TrabajadorEmail });
+
+                    if (!envio.Enviar)
+                    {
+                        _logger.LogInformation(
+                            "Correo {Codigo} no enviado para el consolidado {ConsolidadoId}: está apagado o sin destinatarios.",
+                            CorreoEventoCodigos.RendicionIncluidaConsolidado, consolidadoId);
+                        return; // la configuración es del correo, no del destinatario: no hay caso de seguir
+                    }
+
+                    var url = SalidaEnlaces.Rendiciones(_configuration, d.RendicionId);
+                    var enQue = string.IsNullOrWhiteSpace(d.ConsolidadoCodigo)
+                        ? "un consolidado"
+                        : $"el consolidado {d.ConsolidadoCodigo}";
+
+                    await _emailService.SendAsync(
+                        to: envio.Para,
+                        subject: $"Rendición {d.Codigo} incluida en {enQue}",
+                        body: ReembolsoEmailTemplates.RendicionConsolidada(layout, d, url),
+                        isHtml: true,
+                        cc: envio.Copia.Count > 0 ? envio.Copia : null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error avisando a los trabajadores del consolidado {ConsolidadoId} recién adjunto", consolidadoId);
+            }
+        }
+
+        /// <summary>
+        /// Le avisa a la jefatura que el consolidado recién adjunto está esperando su firma. Es el
+        /// MISMO camino que el botón «Avisar a la jefatura» de Consolidados —mismo correo, mismos
+        /// destinatarios, misma configuración y misma marca de avisado— para que las
         /// dos formas de avisar no puedan comportarse distinto.
         ///
         /// Nunca tumba la subida: el consolidado ya quedó adjunto y el PDF en SharePoint, así que un
@@ -344,8 +515,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
 
             var vis = await _visibilityResolver.ResolveAsync(
                 filters.CurrentUserId.Value, VisibilidadAmbitoIds.Rendiciones);
-            filters.SeesAll             = vis.SeesAll;
-            filters.VisibleAreaScopeIds = vis.AreaScopeIds.ToList();
+            filters.SeesAll                = vis.SeesAll;
+            filters.VisibleAreaScopeIds    = vis.AreaScopeIds.ToList();
+            filters.TrabajadoresDeSusObras = vis.TrabajadoresDeSusObras.ToList();
         }
 
         // ── Correos de la primera revisión ───────────────────────────────────

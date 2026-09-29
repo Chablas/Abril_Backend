@@ -51,6 +51,12 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Program
         /// de contacto activo ni correo en su ficha: no le va a llegar nada.
         /// </summary>
         public bool ClinicaSinCorreos { get; set; }
+
+        /// <summary>
+        /// La ficha es de pre-ingreso y el correo le toca al propio postulante (destinatario
+        /// TRABAJADOR activo para su perfil), pero no tiene correo registrado: no le va a llegar.
+        /// </summary>
+        public bool PostulanteSinCorreo { get; set; }
     }
 
     /// <summary>

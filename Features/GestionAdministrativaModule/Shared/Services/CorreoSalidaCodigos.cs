@@ -59,18 +59,38 @@
         public const string RendicionPrimeraObservada = "REN_PRIMERA_OBSERVADA";
 
         /// <summary>
-        /// Aviso a la jefatura de que el consolidador ya adjuntó un Consolidado del S10 y su
-        /// reembolso está esperando revisión. Lo dispara el consolidador desde Consolidados.
+        /// Al solicitante: su rendición quedó incluida en el Consolidado del S10 que adjuntó el
+        /// consolidador. Informativo, uno por (planilla, trabajador). Sale al adjuntar el PRIMER
+        /// consolidado —reemplazarlo no lo repite: las rendiciones ya estaban consolidadas— y eso
+        /// pasa en Gestión de Rendiciones, así que se administra ahí.
+        /// </summary>
+        public const string RendicionIncluidaConsolidado = "REN_INCLUIDA_CONSOLIDADO";
+
+        /// <summary>
+        /// Al solicitante: su rendición quedó incluida en la planilla grupal que acaba de preparar el
+        /// consolidador —el paso anterior al Consolidado del S10, que se sube sobre esa planilla—.
+        /// Mismo molde que <see cref="RendicionIncluidaConsolidado"/>: informativo, uno por
+        /// (planilla, trabajador). La planilla grupal se prepara una sola vez, así que no se repite.
+        /// Se origina en Gestión de Rendiciones.
+        /// </summary>
+        public const string RendicionIncluidaPlanillaGrupal = "REN_INCLUIDA_PLANILLA_GRUPAL";
+
+        /// <summary>
+        /// Aviso a la jefatura de que el consolidador ya adjuntó un Consolidado del S10 y está
+        /// esperando revisión. Lo dispara el consolidador desde Consolidados.
         /// El código conserva su nombre de cuando lo disparaba el trabajador: es la clave del
         /// catálogo y la configuración de destinatarios ya está cargada.
         /// </summary>
         public const string S10Revisor = "S10_REVISOR";
 
-        /// <summary>La jefatura aprobó (firmó) el reembolso de un consolidado — se avisa al consolidador.</summary>
+        /// <summary>
+        /// La jefatura aprobó (firmó) un consolidado — se avisa al consolidador. El código conserva
+        /// el nombre de cuando se decía «reembolso»: es la clave del catálogo.
+        /// </summary>
         public const string ReembolsoAprobado = "REEMBOLSO_APROBADO";
 
         /// <summary>
-        /// La jefatura observó el reembolso — se avisa al consolidador con la observación y con
+        /// La jefatura observó el consolidado — se avisa al consolidador con la observación y con
         /// los dos caminos para subsanar (recargar el consolidado o pedírselo al Coordinador ERP).
         ///
         /// El código de la fila NO cambió cuando el estado pasó de llamarse "Rechazado" a
@@ -99,19 +119,45 @@
         // ── Tesorería ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// A Tesorería: la jefatura ya firmó una planilla y su reembolso entró a la bandeja de
-        /// pago (RF-TES-01). Se origina en Consolidados, que es donde se firma; el
-        /// destinatario principal se resuelve por ROL (TESORERO), no por área. Quién más lo recibe
-        /// —el Coordinador ERP, por ejemplo— sale de Configuración → Correos como cualquier otro
-        /// destinatario, con su propio interruptor.
+        /// A Tesorería: la jefatura terminó de firmar un consolidado y su reembolso entró a la
+        /// bandeja de pago (RF-TES-01). Sale UNO por consolidado, no uno por planilla. Se origina
+        /// en Consolidados, que es donde se firma; el destinatario principal se resuelve por ROL
+        /// (TESORERO), no por área. Quién más lo recibe sale de Configuración → Correos como
+        /// cualquier otro destinatario, con su propio interruptor.
         /// </summary>
         public const string TesoreriaReembolso = "TESORERIA_REEMBOLSO";
+
+        /// <summary>
+        /// A Tesorería, EN LUGAR de <see cref="TesoreriaReembolso"/>: el consolidado que ella había
+        /// observado (RG-49) vuelve firmado por la jefatura, con la observación subsanada
+        /// (plantilla 20, «La observación fue subsanada y el consolidado volvió a Tesorería»). Sale
+        /// del mismo acto —la firma que completa el documento— y al mismo destinatario principal,
+        /// pero es otro correo, con su propia configuración en Consolidados.
+        /// </summary>
+        public const string TesoreriaSubsanada = "TESORERIA_SUBSANADA";
+
+        /// <summary>
+        /// A Tesorería: confirmó la revisión de un consolidado y quedó en «Proceder con el
+        /// reembolso», listo para programar el pago (plantilla 21, «El consolidado está listo para
+        /// programación de pago»). Sale UNO por consolidado y al mismo destinatario principal que
+        /// <see cref="TesoreriaReembolso"/> —el rol TESORERO, no la categoría del puesto—, pero se
+        /// origina en Reembolsos, que es donde se confirma, y se administra ahí.
+        /// </summary>
+        public const string TesoreriaPorPagar = "TESORERIA_POR_PAGAR";
 
         /// <summary>
         /// Al solicitante: Tesorería ya pagó su reembolso (RG-28 / RF-TES-11). Se origina en
         /// Reembolsos y cierra el ciclo.
         /// </summary>
         public const string ReembolsoPagado = "REEMBOLSO_PAGADO";
+
+        /// <summary>
+        /// Al consolidador: Tesorería pagó el consolidado (plantilla 22, «El consolidado fue
+        /// pagado»). Tesorería le abona el total a él y él le reembolsa a cada trabajador, así que
+        /// lleva el monto y lo que le toca a cada uno. Sale UNO por consolidado, del mismo acto que
+        /// <see cref="ReembolsoPagado"/>, y solo al consolidador.
+        /// </summary>
+        public const string ReembolsoPagadoConsolidador = "REEMBOLSO_PAGADO_CONSOLIDADOR";
 
         /// <summary>
         /// Al consolidador: Tesorería devolvió el consolidado antes de pagarlo (RG-49), con el motivo
@@ -202,7 +248,11 @@
         /// </summary>
         public const string Consolidados = "CONSOLIDADOS";
 
-        /// <summary>Tesorería: el aviso de pago al solicitante, que es lo que cierra el ciclo.</summary>
+        /// <summary>
+        /// Tesorería: el aviso a ella misma de que un consolidado quedó listo para pagar, la
+        /// observación que le devuelve al consolidador y el aviso de pago al solicitante, que es lo
+        /// que cierra el ciclo.
+        /// </summary>
         public const string Reembolsos = "REEMBOLSOS";
 
         /// <summary>

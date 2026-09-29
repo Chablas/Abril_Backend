@@ -50,7 +50,7 @@ namespace Abril_Backend.Shared.Services.Firma.Dtos
     {
         /// <summary>
         /// DIBUJO | IMAGEN. Sin valor se asume DIBUJO, que es lo único que existía antes y lo único
-        /// que siguen mandando Contabilidad y "Tu firma".
+        /// que sigue mandando Contabilidad → Firma.
         /// </summary>
         public string? Tipo { get; set; }
 

@@ -4,6 +4,7 @@ using Abril_Backend.Features.Habilitacion.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace Abril_Backend.Features.Habilitacion.Presentation
 {
@@ -38,17 +39,23 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         [HttpPut("razones-sociales/{id:int}")]
         public async Task<IActionResult> UpdateRazonSocial(int id, [FromBody] ResponsableRazonSocialUpdateDto dto)
         {
-            try { await _repo.UpdateRazonSocial(id, dto); return Ok(new { message = "Administrador actualizado." }); }
+            try { await _repo.UpdateRazonSocial(id, dto, UserId()); return Ok(new { message = "Administrador actualizado." }); }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ResponsablesController.UpdateRazonSocial"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>El residente del proyecto solo lo cambia quien
+        /// <see cref="ProyectoRoles.PuedeAsignarResidente"/> (da permisos en el Cronograma de Hitos);
+        /// para el resto se ignora y se guardan los demás campos.</summary>
         [HttpPut("proyectos/{id:int}")]
         public async Task<IActionResult> UpdateProyecto(int id, [FromBody] ResponsableProyectoUpdateDto dto)
         {
-            try { await _repo.UpdateProyecto(id, dto); return Ok(new { message = "Coordinador de administración actualizado." }); }
+            try { await _repo.UpdateProyecto(id, dto, UserId(), ProyectoRoles.PuedeAsignarResidente(User)); return Ok(new { message = "Coordinador de administración actualizado." }); }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en ResponsablesController.UpdateProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        private int? UserId() =>
+            int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
     }
 }

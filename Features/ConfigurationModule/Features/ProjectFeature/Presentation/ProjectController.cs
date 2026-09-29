@@ -5,6 +5,7 @@ using System.Security.Claims;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Application.Dtos;
 using Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Application.Interfaces;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Presentation
@@ -45,23 +46,28 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
             }
         }
 
-        [HttpGet("paged")]
-        public async Task<IActionResult> GetPaged(
+        /// <summary>
+        /// Carga inicial de Configuración → Proyectos: catálogos de tipo y ciclo de vida (filtros y
+        /// modales) y la primera página. Los cambios de filtro y de página van por <see cref="GetPaged"/>.
+        /// </summary>
+        [HttpGet("init")]
+        public async Task<IActionResult> GetInit(
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 200,
             [FromQuery] string? ruc = null,
             [FromQuery] string? razonSocial = null,
             [FromQuery] string? projectDescription = null,
-            [FromQuery] bool? active = null)
+            [FromQuery] bool? active = null,
+            [FromQuery] int? projectTipoId = null,
+            [FromQuery] int? projectCicloVidaId = null)
         {
             try
             {
-                // Token interno: NameIdentifier = userId. Token Microsoft (AzureAd): oid como fallback.
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier) ?? User.FindFirst("oid");
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _service.GetPaged(page, pageSize, ruc, razonSocial, projectDescription, active);
+                var result = await _service.GetInit(page, pageSize, ruc, razonSocial, projectDescription, active, projectTipoId, projectCicloVidaId);
                 return Ok(result);
             }
             catch (Exception)
@@ -70,7 +76,38 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
             }
         }
 
+        [HttpGet("paged")]
+        public async Task<IActionResult> GetPaged(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 200,
+            [FromQuery] string? ruc = null,
+            [FromQuery] string? razonSocial = null,
+            [FromQuery] string? projectDescription = null,
+            [FromQuery] bool? active = null,
+            [FromQuery] int? projectTipoId = null,
+            [FromQuery] int? projectCicloVidaId = null)
+        {
+            try
+            {
+                // Token interno: NameIdentifier = userId. Token Microsoft (AzureAd): oid como fallback.
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier) ?? User.FindFirst("oid");
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var result = await _service.GetPaged(page, pageSize, ruc, razonSocial, projectDescription, active, projectTipoId, projectCicloVidaId);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Crear, editar y eliminar proyectos es solo de <see cref="ProyectoRoles.EditanProyectos"/>;
+        /// el resto de los roles ve la pantalla en solo lectura. El residente, además, solo lo
+        /// asigna quien <see cref="ProyectoRoles.PuedeAsignarResidente"/>.</summary>
         [HttpPost]
+        [Authorize(Roles = ProyectoRoles.EditanProyectos)]
         public async Task<IActionResult> Create([FromBody] ProjectCreateDto dto)
         {
             try
@@ -83,7 +120,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
                     return BadRequest(new { message = "La descripción del proyecto es obligatoria." });
 
                 var userId = int.Parse(userIdClaim.Value);
-                await _service.Create(dto, userId);
+                await _service.Create(dto, userId, ProyectoRoles.PuedeAsignarResidente(User));
                 return Ok(new { message = "Proyecto creado exitosamente." });
             }
             catch (AbrilException ex)
@@ -97,6 +134,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
         }
 
         [HttpPut]
+        [Authorize(Roles = ProyectoRoles.EditanProyectos)]
         public async Task<IActionResult> Update([FromBody] ProjectEditDto dto)
         {
             try
@@ -109,7 +147,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
                     return BadRequest(new { message = "La descripción del proyecto es obligatoria." });
 
                 var userId = int.Parse(userIdClaim.Value);
-                await _service.Update(dto, userId);
+                await _service.Update(dto, userId, ProyectoRoles.PuedeAsignarResidente(User));
                 return Ok(new { message = "Proyecto actualizado exitosamente." });
             }
             catch (AbrilException ex)
@@ -123,6 +161,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
         }
 
         [HttpDelete("{projectId}")]
+        [Authorize(Roles = ProyectoRoles.EditanProyectos)]
         public async Task<IActionResult> Delete(int projectId)
         {
             try
@@ -195,7 +234,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
 
         /// <summary>
         /// Los desplegables del modal crear/editar proyecto (responsables Arq. Comercial y
-        /// UDP + elegibles como coordinador administrativo) en una sola petición.
+        /// UDP + elegibles como residente y coordinador administrativo) en una sola petición.
         /// </summary>
         [Authorize]
         [HttpGet("lookups")]
@@ -209,49 +248,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
             catch (AbrilException ex)
             {
                 return StatusCode(ex.StatusCode, new { message = ex.Message });
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        [Authorize]
-        [HttpGet("{id}/emails")]
-        public async Task<IActionResult> GetEmails(int id)
-        {
-            try
-            {
-                var emails = await _service.GetEmails(id);
-                if (emails == null)
-                    return NotFound(new { message = "Proyecto no encontrado." });
-
-                return Ok(emails);
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
-            }
-        }
-
-        [Authorize]
-        [HttpPatch("{id}/emails")]
-        public async Task<IActionResult> UpdateEmails(int id, [FromBody] ProjectEmailsUpdateDto dto)
-        {
-            try
-            {
-                // var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                //
-                // if (userIdClaim == null)
-                //     return Unauthorized(new { message = "Inicie sesión" });
-
-                await _service.UpdateEmails(id, dto);
-
-                return Ok(new { message = "Emails actualizados correctamente." });
-            }
-            catch (AbrilException ex)
-            {
-                return BadRequest(new { message = ex.Message });
             }
             catch (Exception)
             {
@@ -301,6 +297,43 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
                     return NotFound(new { message = "Proyecto no encontrado." });
 
                 return Ok(new { tieneUnidadDeProyectos = nuevoValor.Value });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Torres/bloques del proyecto (A, B, C...) con su cantidad de sótanos/pisos/
+        /// cisternas — de ahí RAC/ATS arman el selector de "Lugar" en vez de texto libre.</summary>
+        [Authorize]
+        [HttpGet("{id}/torres")]
+        public async Task<IActionResult> GetTorres(int id)
+        {
+            try
+            {
+                return Ok(await _service.GetTorres(id));
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Las torres son datos del proyecto: las cambian los mismos roles que lo editan
+        /// (<see cref="ProyectoRoles.EditanProyectos"/>); el resto las ve en solo lectura.</summary>
+        [Authorize(Roles = ProyectoRoles.EditanProyectos)]
+        [HttpPut("{id}/torres")]
+        public async Task<IActionResult> SetTorres(int id, [FromBody] List<ProjectTorreGuardarDto> torres)
+        {
+            try
+            {
+                await _service.SetTorres(id, torres);
+                return Ok(new { message = "Torres actualizadas correctamente." });
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
             }
             catch (Exception)
             {

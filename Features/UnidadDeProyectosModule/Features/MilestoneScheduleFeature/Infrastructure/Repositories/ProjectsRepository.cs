@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Shared.Services.Residentes.Services;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Interfaces;
 
@@ -17,21 +18,23 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         }
 
         /// <summary>
-        /// Tarjetas del Cronograma de Hitos. Entran los proyectos que ya estaban (con fila en la
-        /// tabla antigua <c>project_resident</c>) y además los de Unidad de Proyectos que tienen
-        /// residente en Emails SSOMA, que es el que puede subir versiones. El residente que se
-        /// muestra es el de Emails SSOMA (<c>project.residente_workers_id</c>).
-        /// Con <paramref name="soloDelResidente"/> quedan solo los proyectos donde el usuario es
-        /// ese residente (lo decide ProjectsService).
+        /// Tarjetas del Cronograma de Hitos: el universo de obras con residente (visible, tipo que
+        /// es obra, ciclo ACTIVO y residente con usuario y rol RESIDENTE; ver ResidenteQueries). Una
+        /// obra nueva entra sola al ponerle residente en Configuración → Proyectos: ya no depende de
+        /// la tabla antigua <c>project_resident</c> ni de Unidad de Proyectos. El residente que se
+        /// muestra es ese (<c>project.residente_workers_id</c>).
+        /// Con <paramref name="soloDelResidente"/> quedan solo las obras donde el usuario es ese
+        /// residente (lo decide ProjectsService).
         /// </summary>
         public async Task<PagedResult<MilestoneProjectDTO>> GetPagedWithResidents(int userId, bool soloDelResidente, int page, int pageSize = 10, string? search = null)
         {
+            // Subconsultas de la misma consulta (sin N+1): la regla vive en ResidenteQueries.
+            var obras = _context.ObrasConResidente();
+            var delUsuario = _context.ProyectosDelResidente(userId);
+
             var projectQuery = _context.Project
-                .Where(p => p.Active && p.State
-                    && (_context.ProjectResident.Any(pr => pr.ProjectId == p.ProjectId && pr.Active && pr.State)
-                        || (p.ResidenteWorkersId != null && p.TieneUnidadDeProyectos))
-                    && (!soloDelResidente || _context.Worker.Any(w =>
-                        w.Id == p.ResidenteWorkersId && w.Person != null && w.Person.UserId == userId))
+                .Where(p => obras.Contains(p.ProjectId)
+                    && (!soloDelResidente || delUsuario.Contains(p.ProjectId))
                     && (search == null || p.ProjectDescription.ToLower().Contains(search.ToLower())))
                 .OrderByDescending(p => p.ProjectId);
 
@@ -51,8 +54,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                         .Where(w => w.Id == p.ResidenteWorkersId)
                         .Select(w => w.Person != null ? w.Person.FullName : null)
                         .FirstOrDefault(),
-                    EsResidenteDelProyecto = _context.Worker.Any(w =>
-                        w.Id == p.ResidenteWorkersId && w.Person != null && w.Person.UserId == userId)
+                    EsResidenteDelProyecto = delUsuario.Contains(p.ProjectId)
                 })
                 .ToListAsync();
 

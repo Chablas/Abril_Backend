@@ -3,6 +3,7 @@ using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Application.DTOs;
+using Abril_Backend.Shared.Services.Residentes.Services;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Dtos;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Interfaces;
 using Dapper;
@@ -329,15 +330,20 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             var startOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
             var startOfNextMonth = startOfMonth.AddMonths(1);
 
+            // Las obras del mismo universo que las tarjetas (ResidenteQueries), cada una con su
+            // residente de Configuración → Proyectos, que es quien sube las versiones. Ya no la
+            // tabla antigua project_resident.
+            var obras = ctx.ObrasConResidente();
+
             var query =
-                from pr in ctx.ProjectResident
-                join pj in ctx.Project on pr.ProjectId equals pj.ProjectId
-                join u in ctx.User on pr.UserId equals u.UserId
-                join person in ctx.Person on u.UserId equals person.UserId
-                where pr.Active && pr.State && pj.Active
+                from pj in ctx.Project
+                where obras.Contains(pj.ProjectId)
+                join w in ctx.Worker on pj.ResidenteWorkersId equals (int?)w.Id
+                join person in ctx.Person on w.PersonId equals (int?)person.PersonId
+                join u in ctx.User on person.UserId equals (int?)u.UserId
                 where !ctx.MilestoneScheduleHistory.Any(msh =>
-                    msh.ProjectId == pr.ProjectId &&
-                    msh.CreatedUserId == pr.UserId &&
+                    msh.ProjectId == pj.ProjectId &&
+                    msh.CreatedUserId == u.UserId &&
                     msh.Active && msh.State &&
                     msh.CreatedDateTime >= startOfMonth &&
                     msh.CreatedDateTime < startOfNextMonth)

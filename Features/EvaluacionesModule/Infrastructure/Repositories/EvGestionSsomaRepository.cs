@@ -649,7 +649,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     wv.proyecto_id AS ProyectoId, pr.project_description AS ProyectoNombre
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
-                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
+                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo) AND au.state
                   JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   LEFT JOIN project pr ON pr.project_id = wv.proyecto_id
                   WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
@@ -677,7 +677,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id AND pu.categoria_id = @CategoriaId
-                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
+                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo) AND au.state
                   JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   LEFT JOIN project pr ON pr.project_id = wv.proyecto_id
                   WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''

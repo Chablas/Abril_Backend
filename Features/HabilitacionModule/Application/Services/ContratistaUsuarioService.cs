@@ -66,7 +66,8 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
                 ?? throw new AbrilException("Rol no encontrado en el sistema.", 500);
 
             string? passwordTemporal = null;
-            var user = await ctx.User.FirstOrDefaultAsync(u => u.Email == email);
+            // Solo vigentes: el correo de un usuario eliminado queda libre (uq_app_user_email ... WHERE state).
+            var user = await ctx.User.FirstOrDefaultAsync(u => u.Email == email && u.State);
 
             if (user is null)
             {
@@ -167,7 +168,7 @@ namespace Abril_Backend.Features.Habilitacion.Application.Services
 
                 if (nuevoEmail != user.Email)
                 {
-                    var emailEnUso = await ctx.User.AnyAsync(u => u.Email == nuevoEmail && u.UserId != user.UserId);
+                    var emailEnUso = await ctx.User.AnyAsync(u => u.Email == nuevoEmail && u.State && u.UserId != user.UserId);
                     if (emailEnUso)
                         throw new AbrilException("Ya existe un usuario registrado con ese email.", 400);
 

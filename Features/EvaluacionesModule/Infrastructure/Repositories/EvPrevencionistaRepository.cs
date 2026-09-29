@@ -54,7 +54,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id AND pu.categoria_id IN (@CategoriaCoordinadorSsoma, @CategoriaPrevencionista)
-                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
+                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo) AND au.state
                   JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   JOIN project pr ON pr.project_id = wv.proyecto_id
                   WHERE w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */ AND wv.proyecto_id = ANY(@ProyectoIds)",

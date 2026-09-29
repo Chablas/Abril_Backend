@@ -134,7 +134,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id AND pu.categoria_id IN (@CategoriaCoordinadorSsoma, @CategoriaPrevencionista)
-                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
+                  JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo) AND au.state
                   WHERE w.state AND w.email_corporativo IS NOT NULL AND w.email_corporativo != ''
                     AND w.contrata_casa = 'Casa'
                     AND w.workers_estado_id = @WorkersEstadoActivo

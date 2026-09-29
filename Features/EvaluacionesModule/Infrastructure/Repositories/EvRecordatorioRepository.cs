@@ -60,7 +60,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     w.subarea        AS Subarea
                 FROM workers w
                 JOIN person p    ON p.person_id = w.person_id
-                JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
+                JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo) AND au.state
                 JOIN puesto pu   ON pu.puesto_id = w.puesto_id
                 WHERE w.state AND w.obra_oficina_staff_id = {ObraOficinaStaffIds.OficinaCentral}
                   AND w.area          = 'Proyectos'
@@ -84,7 +84,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     w.subarea        AS Subarea
                 FROM workers w
                 JOIN person p         ON p.person_id = w.person_id
-                LEFT JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo)
+                LEFT JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo) AND au.state
                 LEFT JOIN puesto pu   ON pu.puesto_id = w.puesto_id
                 WHERE w.state AND w.subarea IN ('Unidad de Proyectos', 'Ingeniería BIM')
                   AND NOT (pu.categoria_id = {CategoriaIds.Gerente} AND w.area = 'Proyectos')
@@ -124,7 +124,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     w.subarea        AS Subarea
                 FROM workers w
                 JOIN person p    ON p.person_id = w.person_id
-                JOIN app_user au    ON LOWER(au.email) = LOWER(w.email_corporativo)
+                JOIN app_user au    ON LOWER(au.email) = LOWER(w.email_corporativo) AND au.state
                 LEFT JOIN puesto pu ON pu.puesto_id = w.puesto_id
                 WHERE w.state AND w.obra_oficina_staff_id <> {ObraOficinaStaffIds.OficinaCentral}
                   AND NOT (pu.categoria_id = {CategoriaIds.Gerente} AND w.area = 'Proyectos')

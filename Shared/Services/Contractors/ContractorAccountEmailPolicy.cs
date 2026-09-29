@@ -24,7 +24,10 @@ namespace Abril_Backend.Shared.Services.Contractors
             if (emailNormalizado.EndsWith("@abril.pe"))
                 throw new AbrilException("No se puede usar un correo interno de Abril como usuario de contratista.", 409);
 
-            var user = await ctx.User.FirstOrDefaultAsync(u => u.Email.ToLower() == emailNormalizado);
+            // Solo usuarios vigentes: el correo de uno eliminado (state = false) queda libre
+            // (uq_app_user_email ... WHERE state) y se crea un usuario nuevo. Antes se reclamaba la
+            // fila eliminada y se le ponía contraseña, pero seguía con state = false y no podía entrar.
+            var user = await ctx.User.FirstOrDefaultAsync(u => u.State && u.Email.ToLower() == emailNormalizado);
             if (user == null) return null;
 
             // 1. ¿Ya es usuario titular de una contratista? (contractor_user)

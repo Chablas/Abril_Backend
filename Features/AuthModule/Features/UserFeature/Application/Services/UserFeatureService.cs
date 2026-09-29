@@ -6,6 +6,7 @@ using Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Realtime;
+using Abril_Backend.Shared.Services.Convivir.Interfaces;
 using Abril_Backend.Shared.Services.Graph.Interfaces;
 using Microsoft.Extensions.Options;
 
@@ -19,6 +20,7 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
         private readonly FrontendSettings _frontendSettings;
         private readonly IRealtimeNotifier _notifier;
         private readonly IGraphUserService _graphUserService;
+        private readonly IConvivirEnlaceService _convivirEnlace;
 
         public UserFeatureService(
             IUserFeatureRepository repo,
@@ -26,7 +28,8 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
             IEmailService emailService,
             IOptions<FrontendSettings> frontendSettings,
             IRealtimeNotifier notifier,
-            IGraphUserService graphUserService)
+            IGraphUserService graphUserService,
+            IConvivirEnlaceService convivirEnlace)
         {
             _repo = repo;
             _tokenRepo = tokenRepo;
@@ -34,6 +37,7 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
             _frontendSettings = frontendSettings.Value;
             _notifier = notifier;
             _graphUserService = graphUserService;
+            _convivirEnlace = convivirEnlace;
         }
 
         public Task<PagedResult<UserListItemDto>> GetPaged(int page, int pageSize, string? search = null, int? categoriaId = null) =>
@@ -86,6 +90,11 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
         public async Task Create(UserFeatureCreateDto dto)
         {
             var user = await _repo.Create(dto);
+
+            // Un vecino no entra a la intranet sino a la app Convivir Abril: su invitación lo lleva
+            // a crear la contraseña en la app.
+            if (await _convivirEnlace.EnviarEnlaceSiEsVecinoAsync(user.UserId, ConvivirEnlaceTipo.Invitacion))
+                return;
 
             var token = GenerateToken();
             await _tokenRepo.CreateAsync(new UserPasswordTokenDTO

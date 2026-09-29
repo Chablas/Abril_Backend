@@ -3,6 +3,7 @@ using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Application.DTOs;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Application.Interfaces;
+using Abril_Backend.Shared.Services.Convivir.Interfaces;
 using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
 
@@ -16,6 +17,7 @@ namespace Abril_Backend.Application.Services
         private readonly IEmailService _emailService;
         private readonly FrontendSettings _frontendSettings;
         private readonly IUserPasswordTokenRepository _tokenRepository;
+        private readonly IConvivirEnlaceService _convivirEnlace;
 
         public AuthService(
             IAuthRepository authRepository,
@@ -23,9 +25,11 @@ namespace Abril_Backend.Application.Services
             IUserRepository userRepository,
             IEmailService emailService,
             IUserPasswordTokenRepository tokenRepository,
-            IOptions<FrontendSettings> frontendSettings
+            IOptions<FrontendSettings> frontendSettings,
+            IConvivirEnlaceService convivirEnlace
             )
         {
+            _convivirEnlace = convivirEnlace;
             _authRepository = authRepository;
             _jwtService = jwtService;
             _userRepository = userRepository;
@@ -100,6 +104,10 @@ namespace Abril_Backend.Application.Services
             var user = await _authRepository.GetUserByIdAsync(dto.UserId);
 
             if (user == null)
+                return;
+
+            // «Reenviar» sobre un vecino: el enlace es el de la app Convivir Abril, no el de la intranet.
+            if (await _convivirEnlace.EnviarEnlaceSiEsVecinoAsync(user.Value.UserId, ConvivirEnlaceTipo.Invitacion))
                 return;
 
             await _tokenRepository.InvalidateTokensByUserAsync(user.Value.UserId);

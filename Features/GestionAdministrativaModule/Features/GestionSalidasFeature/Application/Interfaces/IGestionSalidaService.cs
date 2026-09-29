@@ -97,8 +97,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         /// Arma la PLANILLA GRUPAL, que en el papel se titula "PLANILLA DE REEMBOLSO": los trayectos
         /// de TODAS las planillas que recibe en una sola tabla, con la columna RENDICIÓN diciendo de
         /// qué planilla sale cada fila, y la cabecera del consolidador. Es el tercer papel del
-        /// ciclo —planilla individual, Consolidado del S10 y esta— y lo genera la subida del
-        /// consolidado, que es cuando queda definido qué planillas van juntas.
+        /// ciclo —planilla individual, Consolidado del S10 y esta— y lo pide el consolidador al
+        /// preparar la planilla grupal, antes de subir el S10: es el papel con el que registra las
+        /// planillas en el S10, así que ahí queda definido qué planillas van juntas.
         ///
         /// Vive acá porque el armado del PDF de gasto es de esta feature: comparte con la planilla
         /// individual el logo, la línea de firma y la imputación de fechas.
@@ -109,8 +110,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         ///
         /// Solo arma los bytes: no los sube ni los guarda. Eso es de quien consolida.
         /// </summary>
-        /// <param name="rendicionIds">Planillas que cubre el consolidado.</param>
-        /// <param name="cabecera">El código y los datos del consolidador que van impresos.</param>
+        /// <param name="rendicionIds">Planillas que cubre la planilla grupal (y después su consolidado).</param>
+        /// <param name="cabecera">
+        /// El código y los datos del consolidador que van impresos. Sin número de reembolso al
+        /// prepararla: lo devuelve el S10 después.
+        /// </param>
         Task<byte[]> GenerarPlanillaGrupal(IReadOnlyCollection<int> rendicionIds, PlanillaReembolsoCabeceraDto cabecera);
 
         /// <summary>

@@ -51,6 +51,7 @@ public class DriversService : IDriversService
         var idsAMostrar = proyectosConConsumo.Union(proyectosHabilitados).ToList();
 
         var proyectos = await ctx.Project
+            .Include(p => p.CicloVida)
             .Where(p => idsAMostrar.Contains(p.ProjectId))
             .OrderBy(p => p.ProjectDescription)
             .ToListAsync();
@@ -62,7 +63,7 @@ public class DriversService : IDriversService
             {
                 ProjectId          = p.ProjectId,
                 ProjectDescription = p.ProjectDescription ?? "",
-                Estado             = p.Estado ?? "Inactivo",
+                Estado             = p.CicloVida?.Codigo ?? string.Empty,
                 HhTotalCasa        = p.HhTotalCasa,
                 AreaTechadaM2      = p.AreaTechadaM2,
                 Trabajadores       = trabInt,

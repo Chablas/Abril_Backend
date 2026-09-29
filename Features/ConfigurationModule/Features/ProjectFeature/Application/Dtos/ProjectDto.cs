@@ -7,9 +7,19 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public string? Codigo { get; set; }
         public string? Abbreviation { get; set; }
         public string? LevelDescription { get; set; }
-        public string? Estado { get; set; }
-        /// <summary>Ciclo de vida real para el cálculo de ratios SSOMA: Finalizado | Activo | Inactivo.</summary>
-        public string? CicloVida { get; set; }
+
+        /// <summary>Qué es: proyecto de verdad, FFT, Oficina Central, área interna o prueba (catálogo project_tipo, ProjectTipoIds).</summary>
+        public int ProjectTipoId { get; set; }
+        public string ProjectTipoCodigo { get; set; } = string.Empty;
+        public string ProjectTipoNombre { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Ciclo de vida: activo, finalizado o inactivo (catálogo project_ciclo_vida,
+        /// ProjectCicloVidaIds). No confundir con <see cref="Active"/>.
+        /// </summary>
+        public int ProjectCicloVidaId { get; set; }
+        public string ProjectCicloVidaCodigo { get; set; } = string.Empty;
+        public string ProjectCicloVidaNombre { get; set; } = string.Empty;
 
         // Contribuyente
         public int? ContributorId { get; set; }
@@ -39,6 +49,18 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public int? WorkersCoordAdminId { get; set; }
         /// <summary>Nombre del coordinador administrativo, para pintarlo en el modal sin buscarlo en la lista.</summary>
         public string? CoordAdminNombre { get; set; }
+        public string? CoordAdminEmail { get; set; }
+
+        // Residente (FK a workers; el correo se resuelve en vivo). Nombre y correo van resueltos
+        // para que el modal los muestre sin pedir la lista de trabajadores.
+        public int? ResidenteWorkersId { get; set; }
+        public string? ResidenteNombre { get; set; }
+        public string? ResidenteEmail { get; set; }
+
+        // Correos de aviso (texto)
+        public string? EmailResponsable { get; set; }
+        public string? EmailRrhh { get; set; }
+        public string? EmailCoordSsoma { get; set; }
 
         // Fechas
         public DateOnly? FechaInicio { get; set; }
@@ -65,6 +87,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public decimal? Lng { get; set; }
         public decimal RadioGeofenceMetros { get; set; }
 
+        /// <summary>Columna de sistema: si el proyecto aparece en filtros y desplegables.</summary>
         public bool Active { get; set; }
     }
 }

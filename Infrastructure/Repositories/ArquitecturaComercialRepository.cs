@@ -308,7 +308,7 @@ namespace Abril_Backend.Infrastructure.Repositories
                 {
                     Id = p.ProjectId,
                     Nombre = p.ProjectDescription ?? string.Empty,
-                    Estado = p.Estado ?? string.Empty,
+                    Estado = p.CicloVida!.Codigo,
                     ResponsableArqComId = p.ResponsableArqComId,
                     ResponsableArqCom = w != null ? (w.Person != null ? w.Person.FullName : null) : p.ResponsableArqCom,
                     TotalActividades = ctx.AcActividad.Count(a => a.ProjectId == p.ProjectId),
@@ -1478,7 +1478,9 @@ namespace Abril_Backend.Infrastructure.Repositories
         {
             using var ctx = _factory.CreateDbContext();
 
-            var proyecto = await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == id);
+            var proyecto = await ctx.Project
+                .Include(p => p.CicloVida)
+                .FirstOrDefaultAsync(p => p.ProjectId == id);
             if (proyecto == null) return null;
 
             string? nombreResuelto = null;
@@ -1505,7 +1507,7 @@ namespace Abril_Backend.Infrastructure.Repositories
             {
                 Id = proyecto.ProjectId,
                 Nombre = proyecto.ProjectDescription ?? string.Empty,
-                Estado = proyecto.Estado ?? string.Empty,
+                Estado = proyecto.CicloVida?.Codigo ?? string.Empty,
                 ResponsableArqComId = proyecto.ResponsableArqComId,
                 ResponsableArqCom = proyecto.ResponsableArqCom,
                 TotalActividades = total,

@@ -13,7 +13,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     /// área. Además ve las que le fueron enviadas para revisar (enviado_a_correo → su
     /// email_corporativo), las que él decidió (aprobador_worker_id → su user; también cubre
     /// solicitudes antiguas donde ese campo guardaba al revisor al que se envió), MÁS las de los
-    /// trabajadores de las áreas (area_scope) que tiene permitido ver.
+    /// trabajadores de las áreas (area_scope) que tiene permitido ver, MÁS las de los trabajadores
+    /// de las obras de las que es residente o administrador (ver
+    /// <see cref="SalidaVisibility.TrabajadoresDeSusObras"/>).
     /// </summary>
     public static class SalidaVisibilidadFilter
     {
@@ -21,17 +23,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         /// Aplica el recorte. Con <paramref name="seesAll"/> en true no restringe nada (GTH,
         /// recepción o quien el resolver haya marcado con alcance total).
         /// </summary>
+        /// <param name="trabajadoresDeSusObras">
+        /// Trabajadores de las obras a cargo del usuario, tal como los resolvió
+        /// <see cref="ISalidaVisibilityResolver"/>. Null o vacío = no está a cargo de ninguna.
+        /// </param>
         public static IQueryable<GaSolicitudSalida> Aplicar(
             IQueryable<GaSolicitudSalida> query,
             AppDbContext ctx,
             int? currentUserId,
             bool seesAll,
-            IReadOnlyCollection<int>? visibleAreaScopeIds)
+            IReadOnlyCollection<int>? visibleAreaScopeIds,
+            IReadOnlyCollection<int>? trabajadoresDeSusObras = null)
         {
             if (!currentUserId.HasValue || seesAll) return query;
 
             var uid = currentUserId.Value;
             var areaIds = visibleAreaScopeIds?.ToList() ?? new List<int>();
+            var deSusObras = trabajadoresDeSusObras?.ToList() ?? new List<int>();
 
             return query.Where(s =>
                 ctx.Worker.Any(w => w.Id == s.WorkerId &&
@@ -48,7 +56,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 ||
                 ctx.Worker.Any(w => w.Id == s.WorkerId &&
                     w.PuestoCatalogo!.AreaDestinoScopeId != null
-                    && areaIds.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value)));
+                    && areaIds.Contains(w.PuestoCatalogo.AreaDestinoScopeId!.Value))
+                ||
+                deSusObras.Contains(s.WorkerId));
         }
     }
 }

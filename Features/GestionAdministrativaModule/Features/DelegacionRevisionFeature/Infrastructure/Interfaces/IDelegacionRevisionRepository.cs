@@ -8,10 +8,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.DelegacionRevision.Infras
         Task<DelegacionInicialDto> GetInitialDataAsync(int userId);
 
         /// <summary>
-        /// Reemplaza los revisores de una asignación (área o área+proyecto). El usuario debe ser
-        /// revisor vivo de esa asignación; los designados deben pertenecer al área/proyecto; el
+        /// Reemplaza los revisores de una asignación (área o área+proyecto, y caso). El usuario debe
+        /// ser revisor vivo de esa asignación; los designados deben pertenecer al área/proyecto; el
         /// usuario no puede quitarse a sí mismo (solo desactivarse).
         /// </summary>
-        Task UpdateAsync(int userId, int areaScopeId, int? projectId, List<DelegacionAsignacionDto> revisores);
+        Task UpdateAsync(int userId, int areaScopeId, int? projectId, int casoId, List<DelegacionAsignacionDto> revisores);
     }
 }

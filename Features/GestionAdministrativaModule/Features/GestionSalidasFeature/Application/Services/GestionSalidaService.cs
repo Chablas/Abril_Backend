@@ -62,18 +62,21 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             //   • El árbol: los nodos tope del conjunto visible (cuyo padre queda fuera) los toma el
             //     frontend como raíces del cascada, así un jefe arranca en su área y un gerente en su
             //     gerencia sin lógica adicional en el cliente.
-            //   • Los trabajadores: solo los de las áreas visibles (más el propio usuario).
+            //   • Los trabajadores: solo los de las áreas visibles (más el propio usuario y, si es
+            //     residente o administrador de obra, los de su obra).
             bool seesAll = seesAllOverride || !currentUserId.HasValue;
             var visibleIds = new List<int>();
+            var deSusObras = new List<int>();
 
             if (!seesAll)
             {
                 var vis = await _visibilityResolver.ResolveAsync(currentUserId!.Value, VisibilidadAmbitoIds.Salidas);
                 seesAll = vis.SeesAll;
                 visibleIds = vis.AreaScopeIds.ToList();
+                deSusObras = vis.TrabajadoresDeSusObras.ToList();
             }
 
-            var data = await _repo.GetFilterData(seesAll, visibleIds, currentUserId);
+            var data = await _repo.GetFilterData(seesAll, visibleIds, currentUserId, deSusObras);
 
             // Meses del desplegable "Mes a rendir". Van acá —y no en el listado, como las
             // tarjetas— porque son las opciones de un control: se arman con el alcance completo del
@@ -81,9 +84,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
             // pantalla vuelve a pedir filter-data después de cada acción que los mueve.
             data.MesesRendicion = await MesesRendicionAsync(new GestionSalidaFiltersDto
             {
-                CurrentUserId       = currentUserId,
-                SeesAll             = seesAll,
-                VisibleAreaScopeIds = visibleIds,
+                CurrentUserId          = currentUserId,
+                SeesAll                = seesAll,
+                VisibleAreaScopeIds    = visibleIds,
+                TrabajadoresDeSusObras = deSusObras,
             });
 
             return data;
@@ -101,11 +105,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         {
             var pendientes = await _repo.GetAll(new GestionSalidaFiltersDto
             {
-                CurrentUserId       = scope.CurrentUserId,
-                SeesAll             = scope.SeesAll,
-                VisibleAreaScopeIds = scope.VisibleAreaScopeIds,
-                EstadoAprobacion    = EstadosSalida.Aprobacion.NombreAprobado,
-                EstadoRendicion     = EstadosSalida.Rendicion.NombreNoRendido,
+                CurrentUserId          = scope.CurrentUserId,
+                SeesAll                = scope.SeesAll,
+                VisibleAreaScopeIds    = scope.VisibleAreaScopeIds,
+                TrabajadoresDeSusObras = scope.TrabajadoresDeSusObras,
+                EstadoAprobacion       = EstadosSalida.Aprobacion.NombreAprobado,
+                EstadoRendicion        = EstadosSalida.Rendicion.NombreNoRendido,
             });
 
             var aptas = pendientes.Where(x => x.AptaParaRendir).ToList();
@@ -174,6 +179,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                 filters.CurrentUserId.Value, VisibilidadAmbitoIds.Salidas);
             filters.SeesAll = vis.SeesAll;
             filters.VisibleAreaScopeIds = vis.AreaScopeIds.ToList();
+            filters.TrabajadoresDeSusObras = vis.TrabajadoresDeSusObras.ToList();
         }
 
         public async Task<byte[]> GetExcel(GestionSalidaFiltersDto filters)
@@ -376,6 +382,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
                     "Rinde un mes a la vez.", 400);
             }
 
+            // 1.b.quater. Bloqueo: quiénes pueden compartir una planilla. No se mezclan jefaturas
+            //          (JEFE, SUB GERENTE, RESIDENTE) con el resto del equipo —a una jefatura la
+            //          firma su gerencia, y en un documento compartido acabaría firmando uno donde
+            //          ella misma está incluida— y todos tienen que colgar de un mismo nodo de área
+            //          por debajo de la gerencia. La regla es la MISMA que aplica el Consolidado del
+            //          S10 al juntar planillas: vive en AgrupacionRendicionRule para que los dos
+            //          extremos no puedan discrepar.
+            await _repo.ValidarAgrupacionDeSolicitudes(elegiblesIds);
+
             // 1.b.ter. Bloqueo: el plazo del mes tiene que seguir abierto — los primeros días
             //          hábiles del mes siguiente (cuántos lo define Mis Rendiciones →
             //          Configuración → Días reembolsables), sin sábados, domingos ni los feriados
@@ -577,27 +592,27 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Applicatio
         {
             var ids = rendicionIds.Distinct().ToList();
             if (ids.Count == 0)
-                throw new AbrilException("No hay planillas con las que armar la planilla de reembolso.", 400);
+                throw new AbrilException("No hay planillas con las que armar la planilla grupal.", 400);
 
             // Cada salida con el código de su planilla: es la columna RENDICIÓN.
             var rendicionPorSolicitud = await _repo.GetCodigoRendicionPorSolicitud(ids);
             if (rendicionPorSolicitud.Count == 0)
                 throw new AbrilException(
-                    "Las planillas del consolidado no tienen salidas: no hay planilla de reembolso que armar.", 409);
+                    "Las rendiciones seleccionadas no tienen salidas: no hay planilla grupal que armar.", 409);
 
             var datos = await _repo.GetRendicionData(rendicionPorSolicitud.Keys.ToList());
 
             // Mismo corte que al rendir y al regenerar: GetRendicionData solo devuelve trayectos
             // reembolsables. Sin ninguno no hay papel que armar, y decirlo es mejor que subir un
-            // documento en blanco al lado del Consolidado del S10.
+            // documento en blanco para registrarlo en el S10.
             if (datos.Count == 0)
                 throw new AbrilException(
-                    "Las planillas del consolidado ya no tienen trayectos reembolsables: no se puede "
-                    + "armar la planilla de reembolso.", 409);
+                    "Las rendiciones seleccionadas ya no tienen trayectos reembolsables: no se puede "
+                    + "armar la planilla grupal.", 409);
 
             var calendario = await _repo.GetCalendarioNoLaborable();
 
-            // Se excluyen TODAS las planillas del consolidado: sus salidas son las que se están
+            // Se excluyen TODAS las planillas del grupo: sus salidas son las que se están
             // imputando, no un periodo ajeno ya rendido.
             var fechas = await ImputarFechasPlanillaAsync(datos, calendario, ids);
 

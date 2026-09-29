@@ -33,7 +33,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Infrastructur
 
         /// <summary>
         /// Datos del trabajador dueño de las salidas propias de la planilla, para los correos:
-        /// su ficha (para resolver el jefe), su nombre, su correo y el nombre de su área.
+        /// su ficha, su nombre, su correo y el nombre de su área, más TODOS los trabajadores que
+        /// agrupa la planilla —el documento, que es lo que decide quién la revisa—.
         /// Null si el usuario no tiene ninguna salida en esa planilla.
         /// </summary>
         Task<RendicionSolicitanteDto?> GetSolicitante(int rendicionId, int userId);

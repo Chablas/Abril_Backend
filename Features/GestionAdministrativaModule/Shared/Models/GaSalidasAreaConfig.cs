@@ -3,16 +3,19 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
 {
     /// <summary>
-    /// Configuración por área (nodo area_scope) para el módulo de salidas. Lleva dos flags:
-    /// <see cref="FiltraPorProyecto"/> (si está activo, el área se "subdivide por proyecto" y sus
-    /// revisores se asignan por proyecto — area_revisores.project_id — en vez de a nivel de área) y
+    /// Configuración por área (nodo area_scope) para el módulo de salidas:
     /// <see cref="CapturasObligatorias"/> (si está en false, los trabajadores del área rinden sin
     /// subir capturas de movilidad). Tabla desacoplada de la matriz base (no se tocan columnas de
     /// area_scope).
     ///
-    /// Un área SIN fila acá usa los defaults (no filtra por proyecto, capturas obligatorias): por
-    /// eso un área nueva no necesita que nadie la registre y la fila solo aparece cuando se cambia
-    /// algo. Cada nodo es independiente: la configuración de un área NO se hereda a sus subáreas.
+    /// Hasta el 2026-09-25 llevaba también "filtrar por proyecto", una casilla que decidía si el
+    /// área se subdividía por obra en Revisores de Áreas. Ya no se marca: la pantalla lo deduce de
+    /// dónde trabaja la gente del área y el algoritmo de los actores mira la obra de cada
+    /// trabajador. La columna se bota en <c>20260925_GaActoresUnificados_PostDeploy.sql</c>.
+    ///
+    /// Un área SIN fila acá usa los defaults (capturas obligatorias): por eso un área nueva no
+    /// necesita que nadie la registre y la fila solo aparece cuando se cambia algo. Cada nodo es
+    /// independiente: la configuración de un área NO se hereda a sus subáreas.
     /// </summary>
     [Table("ga_salidas_area_config")]
     public class GaSalidasAreaConfig
@@ -22,10 +25,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Models
 
         [Column("area_scope_id")]
         public int AreaScopeId { get; set; }
-
-        /// <summary>Si true, el área se filtra por proyecto (se muestran subfilas por proyecto). Default false.</summary>
-        [Column("filtra_por_proyecto")]
-        public bool FiltraPorProyecto { get; set; }
 
         /// <summary>
         /// Si true (default), los trabajadores del área deben subir una captura de movilidad por

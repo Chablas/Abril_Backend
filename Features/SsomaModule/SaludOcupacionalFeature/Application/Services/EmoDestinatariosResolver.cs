@@ -2,6 +2,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configuraci
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Programacion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
@@ -80,6 +81,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                     ContrataCasa       = w.ContrataCasa,
                     ObraOficinaStaffId = w.ObraOficinaStaffId,
                     EmailCorporativo   = w.EmailCorporativo,
+                    EmailPersonal      = w.Person != null ? w.Person.Email : null,
                     ContributorId      = w.ContributorId,
                     Subarea            = w.Subarea,
                 })
@@ -275,6 +277,13 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                         else if (clinicaEmails.Count == 0) resultado.ClinicaSinCorreos = true;
                     }
 
+                    // Mismo caso con el postulante: le toca el correo pero no dejó uno personal.
+                    if (w.EsPreIngreso &&
+                        string.Equals(regla.DestinatarioCodigo, EmoCorreoDestinatarioCodigo.Trabajador,
+                                      StringComparison.OrdinalIgnoreCase) &&
+                        string.IsNullOrWhiteSpace(CorreoDelExaminado(w)))
+                        resultado.PostulanteSinCorreo = true;
+
                     var destino = regla.EsCopia ? copias : para;
 
                     foreach (var (email, nombre) in ExpandirRegla(regla, w, jefes, clinicaEmails, clinicaNombre, gthEmail))
@@ -447,7 +456,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
                                    (string?)(w.NombreSolicitante ?? regla.Nombre)) };
 
                 case EmoCorreoDestinatarioCodigo.Trabajador:
-                    return new[] { ((string?)w.EmailCorporativo, (string?)regla.Nombre) };
+                    return new[] { (CorreoDelExaminado(w),
+                                    w.EsPreIngreso ? EmoExaminadoTexto.Capitalizada(true) : regla.Nombre) };
 
                 case EmoCorreoDestinatarioCodigo.Residente:
                     return new[] { ((string?)w.Proyecto?.EmailResidente, (string?)regla.Nombre) };
@@ -485,6 +495,17 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             }
         }
 
+        /// <summary>
+        /// Correo de la propia persona examinada (destinatario <c>TRABAJADOR</c>): el corporativo
+        /// del trabajador, o el personal (<c>person.email</c>) si la ficha es de pre-ingreso — el
+        /// postulante todavía no tiene corporativo. Si el postulante no dejó uno personal se usa
+        /// el corporativo, por si la ficha ya lo tuviera.
+        /// </summary>
+        private static string? CorreoDelExaminado(WorkerContexto w) =>
+            w.EsPreIngreso && !string.IsNullOrWhiteSpace(w.EmailPersonal)
+                ? w.EmailPersonal
+                : w.EmailCorporativo;
+
         private sealed class WorkerContexto
         {
             public int Id { get; set; }
@@ -493,6 +514,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Services
             public string? ContrataCasa { get; set; }
             public int? ObraOficinaStaffId { get; set; }
             public string? EmailCorporativo { get; set; }
+            /// <summary><c>person.email</c>: el correo personal. Solo se usa con las fichas de pre-ingreso.</summary>
+            public string? EmailPersonal { get; set; }
             public int? ContributorId { get; set; }
             public string? EmailAdminRazonSocial { get; set; }
             public string? Subarea { get; set; }

@@ -33,6 +33,7 @@ using Abril_Backend.Features.GestionGthModule;
 using Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.Infrastructure.Interceptors;
 using Abril_Backend.Features.Ssoma.Penalidad.Infrastructure;
 using Abril_Backend.Features.NotificacionesModule;
+using Abril_Backend.Features.MiPerfilModule;
 using Abril_Backend.Features.Habilitacion;
 using Abril_Backend.Features.UnidadDeProyectosModule;
 using Abril_Backend.Features.Evaluaciones;
@@ -48,6 +49,8 @@ using Abril_Backend.Shared.Services.AreaScope.Interfaces;
 using Abril_Backend.Shared.Services.AreaScope.Services;
 using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces;
 using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services;
+using Abril_Backend.Shared.Services.Actores.Interfaces;
+using Abril_Backend.Shared.Services.Actores.Services;
 using Abril_Backend.Shared.Services.Consolidadores.Interfaces;
 using Abril_Backend.Shared.Services.Consolidadores.Services;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
@@ -100,6 +103,7 @@ var storageProvider = builder.Configuration["Storage:StorageProvider"];
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<AuditoriaInterceptor>();
+builder.Services.AddSingleton<ResidenteHistorialInterceptor>();
 
 // Dapper no trae soporte para DateOnly y revienta al pasarlo como parámetro; esto lo habilita
 // globalmente (ver Shared/Data/DapperTypeHandlers.cs). Va antes de cualquier consulta.
@@ -145,6 +149,9 @@ builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
 
     // Mismo patrón para la bitácora de estados de Penalidades. Se registra en AddSsomaModule().
     options.AddInterceptors(sp.GetRequiredService<PenalidadEstadoHistorialInterceptor>());
+
+    // Y para la bitácora del residente de cada proyecto (lo cambian dos pantallas y da permisos).
+    options.AddInterceptors(sp.GetRequiredService<ResidenteHistorialInterceptor>());
 });
 
 // Configuración del servicio de correo. Los remitentes viven en Email:Senders indexados por
@@ -203,6 +210,7 @@ builder.Services.AddHostedService<Abril_Backend.Features.SsomaModule.Indicadores
 builder.Services.AddGestionAdministrativaModule();
 builder.Services.AddGestionGthModule();
 builder.Services.AddNotificacionesModule();
+builder.Services.AddMiPerfilModule();
 builder.Services.AddHabilitacionModule();
 builder.Services.AddEvaluacionesModule();
 builder.Services.AddUnidadDeProyectosModule();
@@ -274,27 +282,30 @@ builder.Services.AddHttpClient<IDelegatedMailService, GraphDelegatedMailService>
 // de lecciones aprendidas vía PowerAutomate). Lo implementa GraphUserService.
 builder.Services.AddScoped<IEmailGroupResolver, GraphUserService>();
 
-// Jefe/revisor de un trabajador: jefe personalizado (checkbox del formulario de trabajadores)
-// → revisor del área (/configuracion/revisores-areas) → fallback GTH. Registrado globalmente
-// porque lo usan Gestión Administrativa (aprobación de salidas) y SSOMA · Salud Ocupacional
-// (correos de EMO e interconsultas).
-builder.Services.AddScoped<IJefeRevisorResolver, JefeRevisorResolver>();
+// Los cinco actores del ciclo de una salida (aprobar la salida, jefe notificado, 1.ª revisión,
+// consolidar, firmar el consolidado): lo personalizado por trabajador → lo personalizado por área
+// (Gestión Administrativa → Configuración → Revisores de Áreas) → el algoritmo → GTH. Es el ÚNICO
+// lugar que decide; registrado globalmente porque lo usan Gestión Administrativa, Habilitación
+// (la ficha del trabajador), SSOMA (correos de EMO e interconsultas) y Evaluaciones.
+builder.Services.AddScoped<IActoresResolver, ActoresResolver>();
 
-// Consolidadores del S10 de un trabajador: el propio trabajador + los que resuelve el mismo
-// recorrido del árbol de áreas (asignados en Gestión de Rendiciones → Configuración →
-// Consolidadores, o deducidos: Jefe del área, Gerente de la gerencia, residente de la obra).
-// A diferencia del revisor, acá no gana uno solo: todos los activos quedan habilitados.
+// Fachadas del anterior con la forma que ya consumían las pantallas: "el jefe" de un trabajador y
+// los aprobadores de un documento, y los consolidadores de un trabajador.
+builder.Services.AddScoped<IJefeRevisorResolver, JefeRevisorResolver>();
 builder.Services.AddScoped<IConsolidadorResolver, ConsolidadorResolver>();
 
-// Escritura del jefe personalizado (workers_revisores) desde el formulario de trabajadores,
-// más el catálogo de jefes candidatos que alimenta su desplegable.
-builder.Services.AddScoped<IJefePersonalizadoService, JefePersonalizadoService>();
+// Escritura de lo personalizado por trabajador (workers_actor_asignacion) desde el formulario de
+// trabajadores, más el catálogo de personas que alimenta sus desplegables.
+builder.Services.AddScoped<IActoresPersonalizadosService, ActoresPersonalizadosService>();
 
 // Firma de una persona (person.signature_*). Registrada globalmente porque una persona tiene UNA
 // firma y la usan tres modulos: Contabilidad (visado de facturas), Gestion GTH (carta oferta) y
 // Gestion Administrativa (planilla de rendicion de salidas).
 builder.Services.AddScoped<IFirmaPersonalRepository, FirmaPersonalRepository>();
 builder.Services.AddScoped<IFirmaPersonalService, FirmaPersonalService>();
+// Verificación de Microsoft (contraseña + Authenticator recién) que exigen los endpoints que
+// estampan esa firma: Consolidados (aprobar / volver a firmar) y Facturas (firmar).
+builder.Services.AddScoped<IVerificacionMfaFirma, VerificacionMfaFirma>();
 
 // Equivalencia legacy (workers.area/subarea/jefatura) de un nodo del árbol area_scope. Lo usan el
 // formulario de trabajadores al guardar (manda el nodo, el backend deriva los textos) y el endpoint

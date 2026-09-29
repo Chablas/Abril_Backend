@@ -83,6 +83,12 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Sexo> Sexo { get; set; }
         public DbSet<Project> Project { get; set; }
         public DbSet<ProjectTorre> ProjectTorre { get; set; }
+        /// <summary>Catálogo de qué es cada proyecto: PROYECTO, FFT, OFICINA_CENTRAL, AREA_INTERNA o PRUEBA (ProjectTipoIds).</summary>
+        public DbSet<ProjectTipo> ProjectTipo { get; set; }
+        /// <summary>Catálogo del ciclo de vida del proyecto: activo, finalizado o inactivo (ProjectCicloVidaIds).</summary>
+        public DbSet<ProjectCicloVida> ProjectCicloVida { get; set; }
+        /// <summary>Bitácora de cambios del residente del proyecto (la escribe ResidenteHistorialInterceptor).</summary>
+        public DbSet<ProjectResidenteHistorial> ProjectResidenteHistorial { get; set; }
         public DbSet<ProjectResident> ProjectResident {get;set;}
         public DbSet<ResidentReportIncidence> ResidentReportIncidence {get;set;}
         public DbSet<ResidentReportIncidenceImage> ResidentReportIncidenceImage {get;set;}
@@ -297,10 +303,25 @@ namespace Abril_Backend.Infrastructure.Data
         // Override manual de "qué áreas ve este trabajador", por ámbito (salidas / rendiciones).
         public DbSet<GaVisibilidadAmbito> GaVisibilidadAmbito { get; set; }
         public DbSet<GaVisibilidadArea> GaVisibilidadArea { get; set; }
-        public DbSet<WorkersRevisores> WorkersRevisores { get; set; }
-        public DbSet<AreaRevisores> AreaRevisores { get; set; }
-        // Quién puede adjuntar el Consolidado del S10 por los trabajadores de un área.
-        public DbSet<AreaConsolidadores> AreaConsolidadores { get; set; }
+        /// <summary>
+        /// Los cinco actores del ciclo de una salida (aprobar la salida, enterarse, 1.ª revisión,
+        /// consolidar, firmar el consolidado) y los tipos de trabajador para los que se resuelven.
+        /// Catálogos de ids fijos: <c>ActorIds</c> y <c>ActorCasoIds</c>.
+        /// </summary>
+        public DbSet<GaActor> GaActor { get; set; }
+        public DbSet<GaActorCaso> GaActorCaso { get; set; }
+
+        /// <summary>
+        /// Lo personalizado por área (Configuración → Revisores de Áreas). Reemplazó a
+        /// area_revisores, area_revisores_rendicion y area_consolidadores (2026-09-25).
+        /// </summary>
+        public DbSet<AreaActorAsignacion> AreaActorAsignacion { get; set; }
+
+        /// <summary>
+        /// Lo personalizado por trabajador (ficha del trabajador). Reemplazó a workers_revisores,
+        /// el "jefe personalizado" (2026-09-25).
+        /// </summary>
+        public DbSet<WorkersActorAsignacion> WorkersActorAsignacion { get; set; }
         public DbSet<GaSalidasAreaConfig> GaSalidasAreaConfig { get; set; }
         public DbSet<GaAdjuntoFolder> GaAdjuntoFolder { get; set; }
         public DbSet<GaCapturaFolder> GaCapturaFolder { get; set; }
@@ -308,6 +329,19 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<GaConsolidadoS10> GaConsolidadoS10 { get; set; }
         // Qué planillas cubre cada Consolidado del S10: un consolidado puede agrupar varias.
         public DbSet<GaConsolidadoS10Rendicion> GaConsolidadoS10Rendicion { get; set; }
+
+        /// <summary>
+        /// La planilla grupal que prepara el consolidador ANTES de subir el Consolidado del S10, y
+        /// qué planillas de rendición cubre. El consolidado hereda de acá su código.
+        /// </summary>
+        public DbSet<GaPlanillaGrupal> GaPlanillaGrupal { get; set; }
+        public DbSet<GaPlanillaGrupalRendicion> GaPlanillaGrupalRendicion { get; set; }
+
+        /// <summary>
+        /// Las firmas estampadas sobre un consolidado. Son filas y no una columna porque en obra
+        /// firman dos personas sobre las mismas planillas (administrador de obra y residente).
+        /// </summary>
+        public DbSet<GaConsolidadoS10Firma> GaConsolidadoS10Firma { get; set; }
         // Solicitudes de corrección del Consolidado del S10 al Coordinador ERP (bandeja
         // "Correcciones S10"). Van por planilla, igual que el consolidado.
         public DbSet<GaCorreccionS10> GaCorreccionS10 { get; set; }
@@ -971,6 +1005,31 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasForeignKey(p => p.WorkersCoordAdminId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // Tipo y ciclo de vida del proyecto: catálogos con id fijo. Explícitas por lo mismo que
+            // CoordAdmin (las navegaciones no se llaman como la FK y los catálogos no tienen colección
+            // de vuelta).
+            modelBuilder.Entity<ProjectTipo>().ToTable("project_tipo");
+            modelBuilder.Entity<ProjectCicloVida>().ToTable("project_ciclo_vida");
+            modelBuilder.Entity<Project>()
+                .HasOne(p => p.Tipo)
+                .WithMany()
+                .HasForeignKey(p => p.ProjectTipoId)
+                .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<Project>()
+                .HasOne(p => p.CicloVida)
+                .WithMany()
+                .HasForeignKey(p => p.ProjectCicloVidaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Bitácora del residente: FK explícita al proyecto por lo mismo que CoordAdmin (Project no
+            // tiene la colección de vuelta). Los workers_id_* quedan como columnas simples.
+            modelBuilder.Entity<ProjectResidenteHistorial>().ToTable("project_residente_historial");
+            modelBuilder.Entity<ProjectResidenteHistorial>()
+                .HasOne(h => h.Project)
+                .WithMany()
+                .HasForeignKey(h => h.ProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             modelBuilder.Entity<ProjectSubContractor>()
                 .HasOne(s => s.Contract)
                 .WithMany()
@@ -1190,6 +1249,10 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<GaConsolidadoS10Rendicion>().ToTable("ga_consolidado_s10_rendicion");
             modelBuilder.Entity<GaConsolidadoS10Rendicion>()
                 .Property(x => x.ConsolidadoS10Id).HasColumnName("consolidado_s10_id");
+            // La planilla grupal preparada y su puente: sin dígitos en el nombre, la convención
+            // alcanza, pero se fijan igual que las del consolidado para que se lean juntas.
+            modelBuilder.Entity<GaPlanillaGrupal>().ToTable("ga_planilla_grupal");
+            modelBuilder.Entity<GaPlanillaGrupalRendicion>().ToTable("ga_planilla_grupal_rendicion");
             // Mismo caso que el consolidado: se fija a mano para no depender de cómo la
             // convención snake_case parte el "S10".
             modelBuilder.Entity<GaCorreccionS10>().ToTable("ga_correccion_s10");

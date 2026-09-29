@@ -14,9 +14,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
     /// los mismos destinatarios.
     ///
     /// Sale de las MISMAS llamadas que hace el envío (<c>RendicionService.EnviarAPrimeraRevision</c>):
-    /// el jefe lo decide <see cref="IJefeRevisorResolver"/> sobre la ficha del trabajador y el acuse va
-    /// a su correo de usuario. Sin correo del jefe el envío se corta antes de mandar nada, así que acá
-    /// tampoco se anuncia ningún correo.
+    /// quien revisa la planilla lo decide <see cref="IJefeRevisorResolver"/> por PASO
+    /// (<see cref="PasoAprobacion.PrimeraRevision"/>) y no por salida —en un área filtrada por
+    /// proyecto la salida la aprueba el residente y la planilla la revisa el administrador de obra—,
+    /// y el acuse va al correo de usuario del trabajador. Sin correo del revisor el envío se corta
+    /// antes de mandar nada, así que acá tampoco se anuncia ningún correo.
+    ///
+    /// Se pregunta por el trabajador que envía, que es el documento que va a nacer al rendir. Una
+    /// planilla que el revisor generó desde Gestión de Salidas puede agrupar a varios y entonces el
+    /// envío resuelve sobre el conjunto: el preview es de la pantalla, no de una planilla concreta.
     /// </summary>
     public static class CorreosEnvioPrimeraRevision
     {
@@ -30,15 +36,23 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         {
             var avisos = new List<CorreoAvisoPreviewDto>();
 
-            var revisor = await revisorResolver.ResolveAsync(workerId);
-            if (string.IsNullOrWhiteSpace(revisor?.Email)) return avisos;
+            var revisores = await revisorResolver.ResolveAprobadoresDeDocumentoAsync(
+                new[] { workerId }, PasoAprobacion.PrimeraRevision);
+
+            var correosRevisores = revisores
+                .Select(a => a.Persona.Email?.Trim() ?? string.Empty)
+                .Where(e => e.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (correosRevisores.Count == 0) return avisos;
 
             await AgregarAsync(avisos, correoResolver,
-                "A la jefatura", CorreoEventoCodigos.RendicionPrimeraRevision, revisor!.Email!);
+                "A la jefatura", CorreoEventoCodigos.RendicionPrimeraRevision, correosRevisores);
 
             if (!string.IsNullOrWhiteSpace(solicitanteEmail))
                 await AgregarAsync(avisos, correoResolver,
-                    "Al solicitante", CorreoEventoCodigos.RendicionEnviada, solicitanteEmail!);
+                    "Al solicitante", CorreoEventoCodigos.RendicionEnviada, new[] { solicitanteEmail! });
 
             return avisos;
         }
@@ -49,9 +63,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
         /// </summary>
         private static async Task AgregarAsync(
             List<CorreoAvisoPreviewDto> avisos, ICorreoSalidaRecipientResolver correoResolver,
-            string etiqueta, string eventoCodigo, string principal)
+            string etiqueta, string eventoCodigo, IReadOnlyCollection<string> principal)
         {
-            var envio = await correoResolver.ResolveEnvioAsync(eventoCodigo, new List<string> { principal });
+            var envio = await correoResolver.ResolveEnvioAsync(eventoCodigo, principal);
             if (!envio.Enviar || envio.Para.Count == 0) return;
 
             avisos.Add(new CorreoAvisoPreviewDto

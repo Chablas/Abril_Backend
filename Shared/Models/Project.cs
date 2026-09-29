@@ -1,5 +1,6 @@
 using Abril_Backend.Features.CostsModule.Shared.Models;
 using Abril_Backend.Infrastructure.Models;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Shared.Models {
     public class Project {
@@ -10,8 +11,21 @@ namespace Abril_Backend.Shared.Models {
         public string? Abbreviation {get; set;}
         public string? LevelDescription {get; set;}
 
-        // Estado del proyecto (vigente, finalizado, etc.)
-        public string? Estado {get; set;}
+        /// <summary>
+        /// Qué es la fila: proyecto de verdad (edificio que se vende al público), FFT, la Oficina
+        /// Central, un área interna o el proyecto de prueba. Ver <see cref="ProjectTipoIds"/> y, para
+        /// «¿se trata como obra?», <see cref="ProjectTipo.EsObra"/>. Navegación en <see cref="Tipo"/>.
+        /// </summary>
+        public int ProjectTipoId {get; set;} = ProjectTipoIds.Proyecto;
+        public ProjectTipo? Tipo {get; set;}
+
+        /// <summary>
+        /// Ciclo de vida: activo, finalizado o inactivo (<see cref="ProjectCicloVidaIds"/>). Es la
+        /// única fuente: reemplazó a las columnas estado, activo y operativo. No confundir con
+        /// <see cref="Active"/>, que es de sistema (si aparece en filtros y desplegables).
+        /// </summary>
+        public int ProjectCicloVidaId {get; set;} = ProjectCicloVidaIds.Activo;
+        public ProjectCicloVida? CicloVida {get; set;}
 
         // Contribuyente / razón social
         public int? ContributorId {get; set;}
@@ -85,8 +99,6 @@ namespace Abril_Backend.Shared.Models {
         public string? CantTrabajadoresCasa {get; set;}
         /// <summary>HH_REAL | HH_PROYECTADO | HH_CALCULADO_MEDIANA</summary>
         public string? HhFuente {get; set;}
-        /// <summary>Estado del ciclo de vida: Finalizado | Activo | Inactivo</summary>
-        public string? Activo {get; set;}
 
         // Contadores
         public int ContadorIncidentes {get; set;}
@@ -97,7 +109,6 @@ namespace Abril_Backend.Shared.Models {
         // Flags
         public bool TieneArquitecturaComercial {get; set;}
         public bool TieneUnidadDeProyectos {get; set;}
-        public bool Operativo { get; set; } = true;
 
         // Foto
         public string? FotoUrl {get; set;}

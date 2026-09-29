@@ -31,7 +31,8 @@ namespace Abril_Backend.Features.CostsModule.Shared.Models {
         /// <summary>
         /// Razón social activa/inactiva a nivel de negocio (operación vigente del grupo).
         /// Distinto de <see cref="Active"/> (visibilidad en desplegables del sistema) y de
-        /// <see cref="State"/> (soft delete). Misma esencia que <c>Project.Operativo</c>.
+        /// <see cref="State"/> (soft delete). En proyectos, lo equivalente es el ciclo de vida
+        /// (<c>Project.ProjectCicloVidaId</c>).
         /// </summary>
         public bool Operativo { get; set; }
         public string? ContributorNombreComercial { get; set; }

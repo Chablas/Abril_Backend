@@ -2,6 +2,7 @@ using Abril_Backend.Features.SsomaModule.ChecklistFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Repositories
@@ -626,8 +627,12 @@ namespace Abril_Backend.Features.SsomaModule.ChecklistFeature.Infrastructure.Rep
         {
             using var ctx = _factory.CreateDbContext();
 
+            // Los checklists por partida son de obra: proyectos vigentes cuyo tipo se trata como obra
+            // (sin la Oficina Central ni las áreas internas; el de prueba sí, para poder probar ahí).
             var proyectoIds = await ctx.Project
-                .Where(p => p.Active && p.Estado == "ACTIVO")
+                .Where(p => p.Active
+                         && p.ProjectCicloVidaId == ProjectCicloVidaIds.Activo
+                         && p.Tipo!.EsObra)
                 .Select(p => p.ProjectId)
                 .ToListAsync();
 

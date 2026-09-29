@@ -8,8 +8,9 @@ public class RatioDriverProyectoDto
 {
     public int ProjectId { get; set; }
     public string ProjectDescription { get; set; } = null!;
-    /// <summary>Finalizado | Activo | Inactivo — si sigue Activo, el HH/dotación es parcial
-    /// (Tareo acumulado a la fecha, no el total final de la obra).</summary>
+    /// <summary>Nombre del ciclo de vida del proyecto (catálogo project_ciclo_vida): Activo |
+    /// Finalizado | Inactivo — si sigue Activo, el HH/dotación es parcial (Tareo acumulado a la
+    /// fecha, no el total final de la obra).</summary>
     public string CicloVida { get; set; } = null!;
     public int DiasRegistrados { get; set; }
     public decimal AreaTechada { get; set; }

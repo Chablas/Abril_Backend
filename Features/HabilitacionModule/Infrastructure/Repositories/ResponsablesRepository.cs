@@ -86,7 +86,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             };
         }
 
-        public async Task UpdateRazonSocial(int contributorId, ResponsableRazonSocialUpdateDto dto)
+        public async Task UpdateRazonSocial(int contributorId, ResponsableRazonSocialUpdateDto dto, int? userId)
         {
             using var ctx = _factory.CreateDbContext();
             var contributor = await ctx.Contributor.FirstOrDefaultAsync(c => c.ContributorId == contributorId)
@@ -96,17 +96,20 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ? null
                 : dto.EmailAdministrador.Trim();
             contributor.UpdatedDateTime = DateTimeOffset.UtcNow;
+            contributor.UpdatedUserId = userId;
 
             await ctx.SaveChangesAsync();
         }
 
-        public async Task UpdateProyecto(int projectId, ResponsableProyectoUpdateDto dto)
+        public async Task UpdateProyecto(int projectId, ResponsableProyectoUpdateDto dto, int? userId, bool puedeAsignarResidente)
         {
             using var ctx = _factory.CreateDbContext();
             var project = await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == projectId)
                 ?? throw new AbrilException("El proyecto no existe.", 404);
 
-            project.ResidenteWorkersId = dto.ResidenteWorkersId;
+            // El residente da permisos (Cronograma de Hitos): sin el rol que lo asigna, lo que
+            // venga se ignora y queda el que estaba (ver ProyectoRoles).
+            if (puedeAsignarResidente) project.ResidenteWorkersId = dto.ResidenteWorkersId;
             project.WorkersCoordAdminId = dto.WorkersCoordAdminId;
             project.EmailResponsable = string.IsNullOrWhiteSpace(dto.EmailResponsable)
                 ? null
@@ -118,6 +121,7 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
                 ? null
                 : dto.EmailCoordSsoma.Trim();
             project.UpdatedDateTime = DateTime.UtcNow;
+            project.UpdatedUserId = userId;
 
             await ctx.SaveChangesAsync();
         }

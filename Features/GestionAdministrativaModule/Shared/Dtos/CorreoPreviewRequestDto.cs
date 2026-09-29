@@ -39,8 +39,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Dtos
 
         /// <summary>
         /// Adjuntar el Consolidado del S10, que en el mismo paso le avisa a la jefatura de las
-        /// planillas que cubre: consolidar es lo que deja el reembolso esperando su firma.
+        /// planillas que cubre —consolidar es lo que deja el consolidado esperando su firma— y a
+        /// los trabajadores, que su rendición quedó incluida.
         /// </summary>
         public const string ConsolidadoS10 = "CONSOLIDADO_S10";
+
+        /// <summary>
+        /// Preparar la planilla grupal, que les avisa a los trabajadores que su rendición quedó
+        /// incluida en ella.
+        /// </summary>
+        public const string PlanillaGrupal = "PLANILLA_GRUPAL";
     }
 }

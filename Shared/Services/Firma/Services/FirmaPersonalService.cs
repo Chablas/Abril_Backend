@@ -21,7 +21,8 @@ namespace Abril_Backend.Shared.Services.Firma.Services
         public async Task<FirmaPersonalEstadoDto> Save(FirmaPersonalSaveDto dto, int userId)
         {
             // Sin tipo se asume DIBUJO: es lo único que existía antes de que la firma tuviera tipos
-            // y lo único que siguen mandando Contabilidad → Firma y "Tu firma".
+            // y lo único que sigue mandando Contabilidad → Firma. Mi Perfil → Mi Firma y el modal de
+            // firmar mandan el tipo que el usuario eligió entre los habilitados.
             var tipo = (dto?.Tipo ?? FirmaTipo.CodigoDibujo).Trim().ToUpperInvariant();
 
             // Mismas reglas para todos: las pantallas que registran firma escriben las mismas filas

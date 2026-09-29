@@ -136,7 +136,25 @@
         /// el algoritmo de <c>SalidaVisibilityResolver</c>, que les concede esa área y su subárbol
         /// —el revisor/consolidador deducido de la estructura no tiene fila que mirar—.
         /// </summary>
-        public static readonly int[] ConVistaDeSuArea = { Jefe, Coordinador, Gerente };
+        /// <remarks>
+        /// SUB GERENTE se sumó el 2026-09-25: el algoritmo de los actores lo pone a aprobar su área
+        /// por delante del JEFE (<see cref="JefaturaDeAreaPorPrecedencia"/>), y sin esto le tocaba
+        /// decidir sobre una rama que no podía ver.
+        /// </remarks>
+        public static readonly int[] ConVistaDeSuArea = { SubGerente, Jefe, Coordinador, Gerente };
+
+        /// <summary>
+        /// La jefatura de un área NO gerencial, <b>en orden de precedencia</b>: de las que existan
+        /// en el nodo manda la primera. El ORDEN es la regla, no un detalle de implementación
+        /// (2026-09-21): en un área con SUB GERENTE y JEFE manda el sub gerente, y el residente
+        /// solo entra si no hay ninguno de los dos.
+        ///
+        /// En un "Área de Gerencia" no aplica: ahí manda <see cref="Gerente"/> y nadie más.
+        ///
+        /// COORDINADOR queda fuera a propósito: ve su área (<see cref="ConVistaDeSuArea"/>) pero no
+        /// es jefatura para aprobar ni para agrupar rendiciones.
+        /// </summary>
+        public static readonly int[] JefaturaDeAreaPorPrecedencia = { SubGerente, Jefe, Residente };
 
         /// <summary>
         /// Categorías que pueden aprobar la salida de un trabajador regular, en el orden

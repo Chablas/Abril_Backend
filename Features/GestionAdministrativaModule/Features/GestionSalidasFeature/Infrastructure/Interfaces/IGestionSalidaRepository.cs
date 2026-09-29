@@ -17,9 +17,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// Datos de los filtros (trabajadores, lugares y árbol de áreas). Cuando
         /// <paramref name="seesAll"/> es false, tanto los trabajadores como el árbol de áreas se
         /// recortan a <paramref name="visibleAreaScopeIds"/> (área del usuario hacia abajo). El
-        /// propio trabajador del usuario siempre se incluye en la lista de trabajadores.
+        /// propio trabajador del usuario siempre se incluye en la lista de trabajadores, y también
+        /// <paramref name="trabajadoresDeSusObras"/> (con sus áreas en el árbol) cuando el usuario
+        /// es residente o administrador de obra.
         /// </summary>
-        Task<GestionSalidaFilterDataDto> GetFilterData(bool seesAll, List<int> visibleAreaScopeIds, int? currentUserId);
+        Task<GestionSalidaFilterDataDto> GetFilterData(
+            bool seesAll, List<int> visibleAreaScopeIds, int? currentUserId, List<int> trabajadoresDeSusObras);
         Task Aprobar(int id, int reviewerUserId);
 
         /// <summary><paramref name="motivoRechazo"/> es opcional; en blanco se guarda null.</summary>
@@ -102,6 +105,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionSalidas.Infrastruc
         /// Una planilla de rendición es de UN solo mes, así que más de un elemento es un error.
         /// </summary>
         Task<List<(int Anio, int Mes)>> GetMesesDeSolicitudes(IEnumerable<int> ids);
+
+        /// <summary>
+        /// Valida que las salidas dadas puedan ir en una MISMA planilla: sin mezclar jefaturas con
+        /// el resto del equipo y todas bajo un mismo nodo de área por debajo de la gerencia. La
+        /// regla vive en <c>AgrupacionRendicionRule</c>, compartida con el Consolidado del S10;
+        /// lanza <c>AbrilException</c> 400 con el motivo concreto si el conjunto no se puede juntar.
+        /// </summary>
+        Task ValidarAgrupacionDeSolicitudes(IEnumerable<int> ids);
 
         /// <summary>
         /// Feriados y días no laborables (Configuración → Feriados) ya resueltos, para calcular el

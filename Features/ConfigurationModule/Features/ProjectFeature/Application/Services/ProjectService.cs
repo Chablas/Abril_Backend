@@ -18,21 +18,28 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
             _sunatService = sunatService;
         }
 
-        public async Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null)
+        public async Task<ProjectInitDto> GetInit(int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null, int? projectTipoId = null, int? projectCicloVidaId = null)
+        {
+            var (tipos, ciclosVida) = await _repository.GetCatalogos();
+            var proyectos = await GetPaged(page, pageSize, ruc, razonSocial, projectDescription, active, projectTipoId, projectCicloVidaId);
+            return new ProjectInitDto { Tipos = tipos, CiclosVida = ciclosVida, Proyectos = proyectos };
+        }
+
+        public async Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null, int? projectTipoId = null, int? projectCicloVidaId = null)
         {
             if (page < 1) page = 1;
             if (pageSize < 1) pageSize = 200;
-            return await _repository.GetPaged(page, pageSize, ruc, razonSocial, projectDescription, active);
+            return await _repository.GetPaged(page, pageSize, ruc, razonSocial, projectDescription, active, projectTipoId, projectCicloVidaId);
         }
 
-        public async Task Create(ProjectCreateDto dto, int userId)
+        public async Task Create(ProjectCreateDto dto, int userId, bool puedeAsignarResidente)
         {
-            await _repository.Create(dto, userId);
+            await _repository.Create(dto, userId, puedeAsignarResidente);
         }
 
-        public async Task Update(ProjectEditDto dto, int userId)
+        public async Task Update(ProjectEditDto dto, int userId, bool puedeAsignarResidente)
         {
-            await _repository.Update(dto, userId);
+            await _repository.Update(dto, userId, puedeAsignarResidente);
         }
 
         public async Task<bool> DeleteSoftAsync(int projectId, int userId)
@@ -103,16 +110,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
                 ContributorDepartment = created.ContributorDepartment,
                 LegalEntityRegistryNumber = created.LegalEntityRegistryNumber
             };
-        }
-
-        public async Task UpdateEmails(int id, ProjectEmailsUpdateDto dto)
-        {
-            await _repository.UpdateEmails(id, dto);
-        }
-
-        public async Task<ProjectEmailsDto?> GetEmails(int projectId)
-        {
-            return await _repository.GetEmails(projectId);
         }
 
         public async Task<bool?> ToggleArquitecturaComercial(int projectId)

@@ -1,4 +1,5 @@
 ﻿using Abril_Backend.Features.GestionAdministrativa.Shared.Dtos;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Application.Dtos;
 
 namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infrastructure.Interfaces
@@ -63,5 +64,30 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Infras
         /// el usuario no ve.
         /// </summary>
         Task<List<int>> GetWorkerIdsDePlanillas(IReadOnlyCollection<int> rendicionIds);
+
+        /// <summary>
+        /// Correos de los trabajadores de las salidas de las planillas indicadas, sin repetir y SIN
+        /// recortar por visibilidad: son los que reciben el aviso de rendición incluida al preparar la
+        /// planilla grupal y al adjuntar el Consolidado del S10. Lo piden los previews de esas dos
+        /// confirmaciones; sale de la misma consulta que los envíos
+        /// (<see cref="GetRendicionEnPlanillaGrupalCorreoDatos"/>, <see cref="GetRendicionConsolidadaCorreoDatos"/>).
+        /// </summary>
+        Task<List<string>> GetCorreosTrabajadoresDePlanillas(IReadOnlyCollection<int> rendicionIds);
+
+        /// <summary>
+        /// Lo que necesita el aviso «Tu rendición fue incluida en un consolidado»: UNA entrada por
+        /// (planilla, trabajador) de las planillas que cubre el consolidado, con lo que rindió ese
+        /// trabajador y los datos del documento. Sin recortar por visibilidad.
+        /// </summary>
+        Task<List<RendicionConsolidadaCorreoDatos>> GetRendicionConsolidadaCorreoDatos(int consolidadoId);
+
+        /// <summary>
+        /// Lo que necesita el aviso «Rendición incluida en una planilla grupal»: UNA entrada por
+        /// (planilla, trabajador) de las planillas que cubre la planilla grupal, con lo que rindió ese
+        /// trabajador y los datos de la planilla grupal. Sin recortar por visibilidad. Sale de las
+        /// mismas consultas que el aviso de rendición consolidada, así que el preview
+        /// (<see cref="GetCorreosTrabajadoresDePlanillas"/>) nombra a las mismas personas.
+        /// </summary>
+        Task<List<RendicionEnPlanillaGrupalCorreoDatos>> GetRendicionEnPlanillaGrupalCorreoDatos(int planillaGrupalId);
     }
 }

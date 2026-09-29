@@ -37,10 +37,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         /// <summary>Trabajadores activos de la subárea Planeamiento BIM.</summary>
         public List<ResponsableLookupDto> PlaneamientoUdp { get; set; } = new();
         /// <summary>
-        /// Elegibles como coordinador administrativo: personal Casa no retirado con correo
-        /// corporativo — mismo criterio que Gestión de Responsables.
+        /// Elegibles como residente y como coordinador administrativo: personal Casa no retirado
+        /// con correo corporativo — mismo criterio que Gestión de Responsables.
         /// </summary>
-        public List<ResponsableLookupDto> CoordAdmins { get; set; } = new();
+        public List<ResponsableLookupDto> PersonalCasa { get; set; } = new();
     }
 
     /// <summary>Worker del usuario logueado, resuelto vía User→Person.UserId→Worker.PersonId

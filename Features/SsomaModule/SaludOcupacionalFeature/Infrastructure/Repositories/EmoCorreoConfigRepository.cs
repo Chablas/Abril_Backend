@@ -2,6 +2,7 @@ using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Application.Dtos.Configuracion;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Interfaces;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
+using Abril_Backend.Features.Ssoma.SaludOcupacional.Shared;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -82,18 +83,26 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
 
             foreach (var evento in eventos)
             {
+                var esSeccionPostulante = EmoCorreoEventoCodigo.EsVersionPostulante(evento.Codigo);
+
                 evento.Destinatarios = porEvento[evento.Id]
                     .GroupBy(c => c.DestinatarioId)
                     .Select(g =>
                     {
                         var d = g.First();
                         var esAdicional = string.IsNullOrWhiteSpace(d.Codigo);
+                        // En las secciones del postulante la fila del examinado le escribe al
+                        // postulante, a su correo personal (ver EmoDestinatariosResolver).
+                        var esPostulante = esSeccionPostulante && string.Equals(
+                            d.Codigo, EmoCorreoDestinatarioCodigo.Trabajador, StringComparison.OrdinalIgnoreCase);
                         return new EmoCorreoFilaDto
                         {
                             DestinatarioId = d.DestinatarioId,
                             Codigo         = d.Codigo,
-                            Nombre         = d.Nombre,
-                            Descripcion    = d.Descripcion,
+                            Nombre         = esPostulante ? EmoExaminadoTexto.Capitalizada(true) : d.Nombre,
+                            Descripcion    = esPostulante
+                                ? EmoCorreoDestinatarioCodigo.DescripcionTrabajadorPostulante
+                                : d.Descripcion,
                             Email          = d.Email,
                             Tipo           = d.TipoCodigo,
                             Editable       = d.Editable,

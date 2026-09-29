@@ -35,6 +35,17 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         /// </summary>
         public int? WorkersCoordAdminId { get; set; }
 
+        /// <summary>
+        /// Residente del proyecto (FK a workers). Solo se aplica si quien guarda puede asignarlo
+        /// (<c>ProyectoRoles.PuedeAsignarResidente</c>); si no, se ignora y queda el que estaba.
+        /// </summary>
+        public int? ResidenteWorkersId { get; set; }
+
+        // Correos de aviso: null o vacío deja el campo en blanco.
+        public string? EmailResponsable { get; set; }
+        public string? EmailRrhh { get; set; }
+        public string? EmailCoordSsoma { get; set; }
+
         // Fechas
         public DateOnly? FechaInicio { get; set; }
         public DateOnly? FechaFin { get; set; }

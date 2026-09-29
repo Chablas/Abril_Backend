@@ -92,6 +92,23 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     CoordAdminNombre    = p.CoordAdmin != null && p.CoordAdmin.Person != null
                                             ? p.CoordAdmin.Person.FullName
                                             : null,
+                    CoordAdminEmail     = p.CoordAdmin != null ? p.CoordAdmin.EmailCorporativo : null,
+
+                    // Project no tiene navegación al residente: subconsultas en la misma consulta
+                    // de la página (sin N+1), igual que las tarjetas del Cronograma de Hitos.
+                    ResidenteWorkersId = p.ResidenteWorkersId,
+                    ResidenteNombre    = _context.Worker
+                        .Where(w => w.Id == p.ResidenteWorkersId)
+                        .Select(w => w.Person != null ? w.Person.FullName : null)
+                        .FirstOrDefault(),
+                    ResidenteEmail     = _context.Worker
+                        .Where(w => w.Id == p.ResidenteWorkersId)
+                        .Select(w => w.EmailCorporativo)
+                        .FirstOrDefault(),
+
+                    EmailResponsable = p.EmailResponsable,
+                    EmailRrhh        = p.EmailRrhh,
+                    EmailCoordSsoma  = p.EmailCoordSsoma,
 
                     FechaInicio = p.FechaInicio,
                     FechaFin    = p.FechaFin,
@@ -128,7 +145,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             };
         }
 
-        public async Task Create(ProjectCreateDto dto, int userId)
+        public async Task Create(ProjectCreateDto dto, int userId, bool puedeAsignarResidente)
         {
             var existing = await _context.Project
                 .FirstOrDefaultAsync(p => p.ProjectDescription.ToLower() == dto.ProjectDescription.Trim().ToLower());
@@ -136,9 +153,14 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             if (existing != null && existing.State)
                 throw new AbrilException("Ya existe un proyecto con esa descripción.");
 
+            await ValidarTrabajadoresAsync(
+                puedeAsignarResidente ? Cambia(dto.ResidenteWorkersId, existing?.ResidenteWorkersId) : null,
+                Cambia(dto.WorkersCoordAdminId, existing?.WorkersCoordAdminId));
+
             if (existing != null && !existing.State)
             {
                 ApplyDtoToEntity(existing, dto);
+                if (puedeAsignarResidente) existing.ResidenteWorkersId = dto.ResidenteWorkersId;
                 existing.State           = true;
                 existing.UpdatedDateTime = DateTime.UtcNow;
                 existing.UpdatedUserId   = userId;
@@ -156,6 +178,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 CreatedUserId      = userId
             };
             ApplyDtoToEntity(project, dto);
+            if (puedeAsignarResidente) project.ResidenteWorkersId = dto.ResidenteWorkersId;
 
             _context.Project.Add(project);
             await _context.SaveChangesAsync();
@@ -163,7 +186,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             await _checklist.SeedChecklistsObligatoriosAsync(project.ProjectId, userId);
         }
 
-        public async Task Update(ProjectEditDto dto, int userId)
+        public async Task Update(ProjectEditDto dto, int userId, bool puedeAsignarResidente)
         {
             var project = await _context.Project
                 .FirstOrDefaultAsync(p => p.ProjectId == dto.ProjectId);
@@ -180,7 +203,14 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             if (duplicate != null)
                 throw new AbrilException("Ya existe otro proyecto con la misma descripción.");
 
+            await ValidarTrabajadoresAsync(
+                puedeAsignarResidente ? Cambia(dto.ResidenteWorkersId, project.ResidenteWorkersId) : null,
+                Cambia(dto.WorkersCoordAdminId, project.WorkersCoordAdminId));
+
             ApplyDtoToEntity(project, dto);
+            // El residente da permisos (Cronograma de Hitos): sin el rol que lo asigna, lo que
+            // venga se ignora y queda el que estaba. El RESIDENTE edita el resto del proyecto.
+            if (puedeAsignarResidente) project.ResidenteWorkersId = dto.ResidenteWorkersId;
             project.UpdatedDateTime = DateTime.UtcNow;
             project.UpdatedUserId   = userId;
 
@@ -237,94 +267,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             return contributor;
         }
 
-        public async Task<ProjectEmailsDto?> GetEmails(int projectId)
-        {
-            var emails = await _context.Project
-                .Where(p => p.ProjectId == projectId && p.State)
-                .Select(p => new ProjectEmailsDto
-                {
-                    ResidenteWorkersId  = p.ResidenteWorkersId,
-                    WorkersCoordAdminId = p.WorkersCoordAdminId,
-                    EmailResponsable    = p.EmailResponsable,
-                    EmailRrhh           = p.EmailRrhh,
-                    EmailCoordSsoma     = p.EmailCoordSsoma,
-                })
-                .FirstOrDefaultAsync();
-
-            if (emails == null) return null;
-
-            // Trabajadores elegibles como residente o coordinador administrativo: los que
-            // tienen correo corporativo. Van en la misma respuesta para que el formulario
-            // se arme con una sola petición.
-            emails.Residentes = await _context.Worker
-                .Where(w => w.EmailCorporativo != null && w.EmailCorporativo.Trim() != "")
-                .Select(w => new ResidenteOptionDto
-                {
-                    WorkerId       = w.Id,
-                    NombreCompleto = w.Person != null ? w.Person.FullName! : "",
-                    Email          = w.EmailCorporativo!,
-                })
-                .AsNoTracking()
-                .ToListAsync();
-
-            emails.Residentes = emails.Residentes
-                .OrderBy(r => r.NombreCompleto, StringComparer.CurrentCulture)
-                .ToList();
-
-            var actual = emails.Residentes.FirstOrDefault(r => r.WorkerId == emails.ResidenteWorkersId);
-            emails.ResidenteNombre = actual?.NombreCompleto;
-            emails.ResidenteEmail  = actual?.Email;
-
-            var coordAdmin = emails.Residentes.FirstOrDefault(r => r.WorkerId == emails.WorkersCoordAdminId);
-            emails.CoordAdminNombre = coordAdmin?.NombreCompleto;
-            emails.CoordAdminEmail  = coordAdmin?.Email;
-
-            return emails;
-        }
-
-        public async Task UpdateEmails(int id, ProjectEmailsUpdateDto dto)
-        {
-            var project = await _context.Project.FirstOrDefaultAsync(p => p.ProjectId == id);
-            if (project == null)
-                throw new AbrilException("El proyecto no existe.");
-
-            // El residente y el coordinador administrativo son FKs, no textos: null significa
-            // "sin nadie a cargo" y limpia el valor. El formulario siempre manda el objeto
-            // completo. Se validan juntos para no gastar dos roundtrips.
-            var workerIds = new[] { dto.ResidenteWorkersId, dto.WorkersCoordAdminId }
-                .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
-
-            if (workerIds.Count > 0)
-            {
-                var existentes = await _context.Worker
-                    .Where(w => workerIds.Contains(w.Id))
-                    .Select(w => w.Id)
-                    .ToListAsync();
-
-                if (dto.ResidenteWorkersId.HasValue && !existentes.Contains(dto.ResidenteWorkersId.Value))
-                    throw new AbrilException("El trabajador seleccionado como residente no existe.");
-
-                if (dto.WorkersCoordAdminId.HasValue && !existentes.Contains(dto.WorkersCoordAdminId.Value))
-                    throw new AbrilException("El trabajador seleccionado como coordinador administrativo no existe.");
-            }
-
-            project.ResidenteWorkersId  = dto.ResidenteWorkersId;
-            project.WorkersCoordAdminId = dto.WorkersCoordAdminId;
-
-            // Los correos de texto conservan su semántica: null es "no tocar" y string
-            // vacío es "vaciar".
-            if (dto.EmailResponsable != null) project.EmailResponsable = string.IsNullOrWhiteSpace(dto.EmailResponsable) ? null : dto.EmailResponsable.Trim();
-            if (dto.EmailRrhh        != null) project.EmailRrhh        = string.IsNullOrWhiteSpace(dto.EmailRrhh)        ? null : dto.EmailRrhh.Trim();
-            if (dto.EmailCoordSsoma  != null) project.EmailCoordSsoma  = string.IsNullOrWhiteSpace(dto.EmailCoordSsoma)  ? null : dto.EmailCoordSsoma.Trim();
-
-            project.UpdatedDateTime = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-        }
-
         /// <summary>
-        /// Los tres desplegables del modal crear/editar proyecto en una sola consulta: las
-        /// dos subáreas de responsables y los elegibles como coordinador administrativo.
+        /// Los desplegables del modal crear/editar proyecto en una sola consulta: las subáreas
+        /// de responsables y los elegibles como residente y coordinador administrativo.
         /// Se traen juntos porque el modal los pide todos a la vez.
         /// </summary>
         public async Task<ProjectLookupsDto> GetLookups()
@@ -333,9 +278,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             const string SubareaUdp             = "Unidad de Proyectos";
             const string SubareaPlaneamientoUdp = "Ingeniería BIM";
 
-            // Un solo roundtrip: se filtra por la unión de los tres criterios y se reparte
-            // en memoria. El coordinador administrativo usa el mismo criterio que Gestión de
-            // Responsables (personal Casa no retirado con correo corporativo), porque los
+            // Un solo roundtrip: se filtra por la unión de los criterios y se reparte en
+            // memoria. Residente y coordinador administrativo usan el mismo criterio que Gestión
+            // de Responsables (personal Casa no retirado con correo corporativo), porque los
             // correos que salen de ahí son siempre de personal propio de Abril.
             // La proyección va a un tipo anónimo y recién en memoria se pasa al record: una
             // proyección directa al constructor solo fallaría en runtime si EF no la tradujera,
@@ -383,7 +328,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && w.Subarea == SubareaUdp)),
                 PlaneamientoUdp = Armar(candidatos
                     .Where(w => w.WorkersEstadoId == WorkersEstadoIds.Activo && w.Subarea == SubareaPlaneamientoUdp)),
-                CoordAdmins = Armar(candidatos
+                PersonalCasa = Armar(candidatos
                     .Where(w => w.ContrataCasa == "Casa"
                              && WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId)
                              && !string.IsNullOrWhiteSpace(w.EmailCorporativo)))
@@ -533,6 +478,10 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
 
             project.TieneArquitecturaComercial = dto.TieneArquitecturaComercial ?? false;
 
+            project.EmailResponsable = LimpiarCorreo(dto.EmailResponsable);
+            project.EmailRrhh        = LimpiarCorreo(dto.EmailRrhh);
+            project.EmailCoordSsoma  = LimpiarCorreo(dto.EmailCoordSsoma);
+
             project.Active = dto.Active;
         }
 
@@ -578,7 +527,40 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
 
             project.TieneArquitecturaComercial = dto.TieneArquitecturaComercial ?? false;
 
+            project.EmailResponsable = LimpiarCorreo(dto.EmailResponsable);
+            project.EmailRrhh        = LimpiarCorreo(dto.EmailRrhh);
+            project.EmailCoordSsoma  = LimpiarCorreo(dto.EmailCoordSsoma);
+
             project.Active = dto.Active;
+        }
+
+        private static string? LimpiarCorreo(string? correo) =>
+            string.IsNullOrWhiteSpace(correo) ? null : correo.Trim();
+
+        /// <summary>El nuevo valor de una FK solo si cambia; null si queda igual (no hay nada que validar).</summary>
+        private static int? Cambia(int? nuevo, int? actual) => nuevo != actual ? nuevo : null;
+
+        /// <summary>
+        /// El residente y el coordinador administrativo son FKs a workers: se valida que existan
+        /// los que cambian, en una sola consulta. Un valor que ya estaba no se revalida, para no
+        /// trabar el guardado del resto del proyecto si esa ficha se dio de baja después.
+        /// </summary>
+        private async Task ValidarTrabajadoresAsync(int? residenteNuevo, int? coordAdminNuevo)
+        {
+            var ids = new[] { residenteNuevo, coordAdminNuevo }
+                .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+            if (ids.Count == 0) return;
+
+            var existentes = await _context.Worker
+                .Where(w => ids.Contains(w.Id))
+                .Select(w => w.Id)
+                .ToListAsync();
+
+            if (residenteNuevo.HasValue && !existentes.Contains(residenteNuevo.Value))
+                throw new AbrilException("El trabajador seleccionado como residente no existe.");
+
+            if (coordAdminNuevo.HasValue && !existentes.Contains(coordAdminNuevo.Value))
+                throw new AbrilException("El trabajador seleccionado como coordinador administrativo no existe.");
         }
 
         /// <summary>Lat/Lng/RadioGeofenceMetros habilitan el geofencing de Tareo (Arquitectura

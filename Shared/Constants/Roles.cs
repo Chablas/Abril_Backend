@@ -73,5 +73,15 @@
         /// Alcanza con tenerlo, como el resto: no se le exige ningún puesto ni categoría.
         /// </summary>
         public const string CoordinadorErp                    = "84"; // COORDINADOR ERP
+
+        /// <summary>
+        /// Los tres roles que administran el Cronograma de Hitos. Sus IDs los fija el SQL
+        /// <c>20260928_ProyectosRolesYHistorialResidente.sql</c> (el sequence les había dado IDs
+        /// distintos en cada ambiente). Además crean y editan proyectos y asignan su residente:
+        /// ver <see cref="ProyectoRoles"/>.
+        /// </summary>
+        public const string CoordinadorProyectos              = "91"; // COORDINADOR DE PROYECTOS
+        public const string GerenteInmobiliario               = "92"; // GERENTE INMOBILIARIO
+        public const string JefeProyectos                     = "93"; // JEFE DE PROYECTOS
     }
 }

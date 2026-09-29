@@ -82,6 +82,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<FirmaTipo> FirmaTipo { get; set; }
         public DbSet<Sexo> Sexo { get; set; }
         public DbSet<Project> Project { get; set; }
+        /// <summary>Bitácora de cambios del residente del proyecto (la escribe ResidenteHistorialInterceptor).</summary>
+        public DbSet<ProjectResidenteHistorial> ProjectResidenteHistorial { get; set; }
         public DbSet<ProjectResident> ProjectResident {get;set;}
         public DbSet<ResidentReportIncidence> ResidentReportIncidence {get;set;}
         public DbSet<ResidentReportIncidenceImage> ResidentReportIncidenceImage {get;set;}
@@ -996,6 +998,15 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(p => p.CoordAdmin)
                 .WithMany()
                 .HasForeignKey(p => p.WorkersCoordAdminId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Bitácora del residente: FK explícita al proyecto por lo mismo que CoordAdmin (Project no
+            // tiene la colección de vuelta). Los workers_id_* quedan como columnas simples.
+            modelBuilder.Entity<ProjectResidenteHistorial>().ToTable("project_residente_historial");
+            modelBuilder.Entity<ProjectResidenteHistorial>()
+                .HasOne(h => h.Project)
+                .WithMany()
+                .HasForeignKey(h => h.ProjectId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<ProjectSubContractor>()

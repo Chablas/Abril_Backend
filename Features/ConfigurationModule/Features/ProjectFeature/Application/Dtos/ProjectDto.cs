@@ -39,6 +39,18 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public int? WorkersCoordAdminId { get; set; }
         /// <summary>Nombre del coordinador administrativo, para pintarlo en el modal sin buscarlo en la lista.</summary>
         public string? CoordAdminNombre { get; set; }
+        public string? CoordAdminEmail { get; set; }
+
+        // Residente (FK a workers; el correo se resuelve en vivo). Nombre y correo van resueltos
+        // para que el modal los muestre sin pedir la lista de trabajadores.
+        public int? ResidenteWorkersId { get; set; }
+        public string? ResidenteNombre { get; set; }
+        public string? ResidenteEmail { get; set; }
+
+        // Correos de aviso (texto)
+        public string? EmailResponsable { get; set; }
+        public string? EmailRrhh { get; set; }
+        public string? EmailCoordSsoma { get; set; }
 
         // Fechas
         public DateOnly? FechaInicio { get; set; }

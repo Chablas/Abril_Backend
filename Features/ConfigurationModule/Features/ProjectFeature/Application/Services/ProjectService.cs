@@ -25,14 +25,14 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
             return await _repository.GetPaged(page, pageSize, ruc, razonSocial, projectDescription, active);
         }
 
-        public async Task Create(ProjectCreateDto dto, int userId)
+        public async Task Create(ProjectCreateDto dto, int userId, bool puedeAsignarResidente)
         {
-            await _repository.Create(dto, userId);
+            await _repository.Create(dto, userId, puedeAsignarResidente);
         }
 
-        public async Task Update(ProjectEditDto dto, int userId)
+        public async Task Update(ProjectEditDto dto, int userId, bool puedeAsignarResidente)
         {
-            await _repository.Update(dto, userId);
+            await _repository.Update(dto, userId, puedeAsignarResidente);
         }
 
         public async Task<bool> DeleteSoftAsync(int projectId, int userId)
@@ -103,16 +103,6 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
                 ContributorDepartment = created.ContributorDepartment,
                 LegalEntityRegistryNumber = created.LegalEntityRegistryNumber
             };
-        }
-
-        public async Task UpdateEmails(int id, ProjectEmailsUpdateDto dto)
-        {
-            await _repository.UpdateEmails(id, dto);
-        }
-
-        public async Task<ProjectEmailsDto?> GetEmails(int projectId)
-        {
-            return await _repository.GetEmails(projectId);
         }
 
         public async Task<bool?> ToggleArquitecturaComercial(int projectId)

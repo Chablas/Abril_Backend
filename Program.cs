@@ -103,6 +103,7 @@ var storageProvider = builder.Configuration["Storage:StorageProvider"];
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<AuditoriaInterceptor>();
+builder.Services.AddSingleton<ResidenteHistorialInterceptor>();
 
 // Dapper no trae soporte para DateOnly y revienta al pasarlo como parámetro; esto lo habilita
 // globalmente (ver Shared/Data/DapperTypeHandlers.cs). Va antes de cualquier consulta.
@@ -148,6 +149,9 @@ builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
 
     // Mismo patrón para la bitácora de estados de Penalidades. Se registra en AddSsomaModule().
     options.AddInterceptors(sp.GetRequiredService<PenalidadEstadoHistorialInterceptor>());
+
+    // Y para la bitácora del residente de cada proyecto (lo cambian dos pantallas y da permisos).
+    options.AddInterceptors(sp.GetRequiredService<ResidenteHistorialInterceptor>());
 });
 
 // Configuración del servicio de correo. Los remitentes viven en Email:Senders indexados por

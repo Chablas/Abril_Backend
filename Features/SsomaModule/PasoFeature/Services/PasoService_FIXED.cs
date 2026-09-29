@@ -575,8 +575,11 @@ public class PasoService : IPasoService
         using var ctx = _factory.CreateDbContext();
         var anioFiltro = anio ?? DateTime.Today.Year;
 
+        // Sin filtro por ciclo de vida a propósito: el PASO de un año sigue valiendo aunque el
+        // proyecto haya terminado después (antes decía project.operativo, que solo estaba en false en
+        // dos proyectos ya inactivos, así que el resultado es el mismo).
         var proyectosOperativos = await ctx.Project
-            .Where(p => p.Operativo && p.Active)
+            .Where(p => p.Active)
             .Select(p => p.ProjectId)
             .ToListAsync();
 

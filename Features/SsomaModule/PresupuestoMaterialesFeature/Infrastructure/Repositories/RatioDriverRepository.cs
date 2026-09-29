@@ -30,10 +30,8 @@ public class RatioDriverRepository : IRatioDriverRepository
             {
                 ProjectId = p.ProjectId,
                 AreaTechada = p.AreaTechadaM2!.Value,
-                // Sin default a "Activo": un proyecto viejo sin este campo cargado (null) se
-                // trata como cerrado (ver esManualConfiable en RatioDriverService) — solo un
-                // "Activo" explícito se considera obra en curso/parcial.
-                CicloVida = p.Activo,
+                // Solo ACTIVO es obra en curso/parcial (ver esManualConfiable en RatioDriverService).
+                CicloVidaId = p.ProjectCicloVidaId,
                 HhTotalCasa = p.HhTotalCasa,
                 CantTrabajadoresCasa = p.CantTrabajadoresCasa,
                 HhFuente = p.HhFuente,
@@ -260,7 +258,7 @@ public class RatioDriverRepository : IRatioDriverRepository
         using var conn = Conn();
         const string sql = """
             SELECT d.project_id AS ProjectId, p.project_description AS ProjectDescription,
-                   COALESCE(p.activo, 'Activo') AS CicloVida, d.dias_registrados AS DiasRegistrados,
+                   cv.nombre AS CicloVida, d.dias_registrados AS DiasRegistrados,
                    d.area_techada AS AreaTechada, d.cantidad AS Cantidad, d.ratio AS Ratio,
                    d.cantidad_calculado AS CantidadCalculado, d.cantidad_manual AS CantidadManual,
                    d.cantidad_proyectado AS CantidadProyectado, d.fuente_cantidad AS FuenteCantidad,
@@ -268,6 +266,7 @@ public class RatioDriverRepository : IRatioDriverRepository
                    d.es_outlier AS EsOutlier, d.incluido_manual AS IncluidoManual
             FROM ss_ratio_proyecto_driver d
             JOIN project p ON p.project_id = d.project_id
+            JOIN project_ciclo_vida cv ON cv.project_ciclo_vida_id = p.project_ciclo_vida_id
             WHERE d.tipo_driver = @tipoDriver
             ORDER BY d.ratio
             """;

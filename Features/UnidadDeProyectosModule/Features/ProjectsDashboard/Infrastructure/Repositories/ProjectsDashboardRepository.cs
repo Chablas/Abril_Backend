@@ -34,7 +34,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
                 {
                     p.ProjectId,
                     p.ProjectDescription,
-                    p.Estado,
+                    Estado = p.CicloVida!.Codigo,
                     p.ResponsableUdpId,
                     p.ResponsableUdp
                 })
@@ -50,8 +50,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
                 .ToList();
 
             var estados = rows
-                .Where(p => p.Estado != null)
-                .Select(p => p.Estado!)
+                .Select(p => p.Estado)
                 .Distinct()
                 .OrderBy(e => e)
                 .ToList();
@@ -215,7 +214,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
 
             var project = await ctx.Project
                 .Where(p => p.ProjectId == proyectoId)
-                .Select(p => new { p.ProjectId, p.ProjectDescription, p.Estado, p.ResponsableUdp })
+                .Select(p => new { p.ProjectId, p.ProjectDescription, Estado = p.CicloVida!.Codigo, p.ResponsableUdp })
                 .FirstOrDefaultAsync();
 
             var responsableNombre = project?.ResponsableUdp;
@@ -324,7 +323,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
         {
             var q = ctx.Project.Where(p => p.State && p.Active && p.TieneUnidadDeProyectos && !ctx.ProyectoFiltro.Any(f => f.ProjectId == p.ProjectId && f.FuncionalidadId == ProyectoFiltroFuncionalidades.UdpDashboard && !f.Active));
             if (proyectoId.HasValue) q = q.Where(p => p.ProjectId == proyectoId.Value);
-            if (estado != null) q = q.Where(p => p.Estado == estado);
+            // "estado" es el código del ciclo de vida (ACTIVO, FINALIZADO, INACTIVO).
+            if (estado != null) q = q.Where(p => p.CicloVida!.Codigo == estado);
             if (responsableId.HasValue) q = q.Where(p => p.ResponsableUdpId == responsableId.Value);
 
             return await q
@@ -332,7 +332,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ProjectsDashbo
                 {
                     ProjectId = p.ProjectId,
                     ProjectDescription = p.ProjectDescription,
-                    Estado = p.Estado,
+                    Estado = p.CicloVida!.Codigo,
                     ResponsableNombre = p.ResponsableUdp,
                     ResponsableId = p.ResponsableUdpId
                 })

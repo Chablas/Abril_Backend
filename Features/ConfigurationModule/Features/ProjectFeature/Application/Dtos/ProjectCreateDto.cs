@@ -6,7 +6,11 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
         public string? Codigo { get; set; }
         public string? Abbreviation { get; set; }
         public string? LevelDescription { get; set; }
-        public string? Estado { get; set; }
+
+        /// <summary>Catálogo project_tipo. Sin valor, PROYECTO.</summary>
+        public int? ProjectTipoId { get; set; }
+        /// <summary>Catálogo project_ciclo_vida. Sin valor, ACTIVO.</summary>
+        public int? ProjectCicloVidaId { get; set; }
 
         // Contribuyente
         public int? ContributorId { get; set; }

@@ -1,6 +1,7 @@
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Constants;
 
 namespace Abril_Backend.Features.SsomaModule.PresupuestoMaterialesFeature.Application.Services;
 
@@ -57,18 +58,17 @@ public class RatioDriverService : IRatioDriverService
             // mediana por defecto. Solo un proyecto Finalizado se incluye automáticamente. El
             // responsable siempre puede forzar la inclusión a mano desde la pantalla de Ratios,
             // y esa decisión manual queda registrada y no se pisa en recálculos posteriores.
-            var incluidoPorDefecto = p.CicloVida == "Finalizado";
+            var incluidoPorDefecto = p.CicloVidaId == ProjectCicloVidaIds.Finalizado;
 
             var hhCalculado = hhPorProyecto.TryGetValue(p.ProjectId, out var hh) ? hh.HhTotal : 0;
             var diasRegistrados = hhPorProyecto.TryGetValue(p.ProjectId, out var hhDias) ? hhDias.DiasRegistrados : 0;
             // El valor manual de Datos Base solo manda sobre el calculado cuando el proyecto ya
-            // NO está Activo (Finalizado, Inactivo, o el campo nunca se cargó — típico en obras
-            // viejas). Antes esto se decidía por HhFuente=="HH_REAL", pero ese campo es facil de
-            // olvidar actualizar; el estado del proyecto es lo que el responsable ya revisa y
-            // controla. Si sigue Activo, el manual es un proyectado/estimado de presupuesto, no
+            // NO está Activo (Finalizado o Inactivo). Antes esto se decidía por
+            // HhFuente=="HH_REAL", pero ese campo es facil de olvidar actualizar; el ciclo de vida
+            // del proyecto es lo que el responsable ya revisa y controla. Si sigue Activo, el manual es un proyectado/estimado de presupuesto, no
             // un dato real definitivo (ver caso CEDRO 33: su manual era un proyectado inicial,
             // muy distinto del real que ya se está midiendo por Tareo/Excel).
-            var esManualConfiable = p.CicloVida != "Activo";
+            var esManualConfiable = p.CicloVidaId != ProjectCicloVidaIds.Activo;
             var hhManual = esManualConfiable ? p.HhTotalCasa : null;
             var hhProyectado = !esManualConfiable ? p.HhTotalCasa : null;
             var hhOficial = hhManual ?? hhCalculado;

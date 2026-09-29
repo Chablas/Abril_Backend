@@ -5,7 +5,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.App
 {
     public interface IProjectService
     {
-        Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null);
+        Task<ProjectInitDto> GetInit(int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null, int? projectTipoId = null, int? projectCicloVidaId = null);
+        Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null, int? projectTipoId = null, int? projectCicloVidaId = null);
         Task Create(ProjectCreateDto dto, int userId, bool puedeAsignarResidente);
         Task Update(ProjectEditDto dto, int userId, bool puedeAsignarResidente);
         Task<bool> DeleteSoftAsync(int projectId, int userId);

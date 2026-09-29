@@ -6,7 +6,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
 {
     public interface IProjectRepository
     {
-        Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null);
+        Task<PagedResult<ProjectDto>> GetPaged(int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null, int? projectTipoId = null, int? projectCicloVidaId = null);
+        Task<(List<ProjectCatalogoDto> Tipos, List<ProjectCatalogoDto> CiclosVida)> GetCatalogos();
         Task Create(ProjectCreateDto dto, int userId, bool puedeAsignarResidente);
         Task Update(ProjectEditDto dto, int userId, bool puedeAsignarResidente);
         Task<bool> DeleteSoftAsync(int projectId, int userId);

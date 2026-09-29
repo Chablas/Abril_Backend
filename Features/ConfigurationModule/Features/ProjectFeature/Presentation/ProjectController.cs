@@ -46,6 +46,36 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
             }
         }
 
+        /// <summary>
+        /// Carga inicial de Configuración → Proyectos: catálogos de tipo y ciclo de vida (filtros y
+        /// modales) y la primera página. Los cambios de filtro y de página van por <see cref="GetPaged"/>.
+        /// </summary>
+        [HttpGet("init")]
+        public async Task<IActionResult> GetInit(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 200,
+            [FromQuery] string? ruc = null,
+            [FromQuery] string? razonSocial = null,
+            [FromQuery] string? projectDescription = null,
+            [FromQuery] bool? active = null,
+            [FromQuery] int? projectTipoId = null,
+            [FromQuery] int? projectCicloVidaId = null)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier) ?? User.FindFirst("oid");
+                if (userIdClaim == null)
+                    return Unauthorized(new { message = "Inicie sesión" });
+
+                var result = await _service.GetInit(page, pageSize, ruc, razonSocial, projectDescription, active, projectTipoId, projectCicloVidaId);
+                return Ok(result);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
         [HttpGet("paged")]
         public async Task<IActionResult> GetPaged(
             [FromQuery] int page = 1,
@@ -53,7 +83,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
             [FromQuery] string? ruc = null,
             [FromQuery] string? razonSocial = null,
             [FromQuery] string? projectDescription = null,
-            [FromQuery] bool? active = null)
+            [FromQuery] bool? active = null,
+            [FromQuery] int? projectTipoId = null,
+            [FromQuery] int? projectCicloVidaId = null)
         {
             try
             {
@@ -62,7 +94,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Pre
                 if (userIdClaim == null)
                     return Unauthorized(new { message = "Inicie sesión" });
 
-                var result = await _service.GetPaged(page, pageSize, ruc, razonSocial, projectDescription, active);
+                var result = await _service.GetPaged(page, pageSize, ruc, razonSocial, projectDescription, active, projectTipoId, projectCicloVidaId);
                 return Ok(result);
             }
             catch (Exception)

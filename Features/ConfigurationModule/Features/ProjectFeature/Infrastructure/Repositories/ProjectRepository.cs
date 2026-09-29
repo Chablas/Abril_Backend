@@ -23,12 +23,19 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
         }
 
         public async Task<PagedResult<ProjectDto>> GetPaged(
-            int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null)
+            int page, int pageSize, string? ruc = null, string? razonSocial = null, string? projectDescription = null, bool? active = null,
+            int? projectTipoId = null, int? projectCicloVidaId = null)
         {
             var query = _context.Project.Where(p => p.State);
 
             if (active.HasValue)
                 query = query.Where(p => p.Active == active.Value);
+
+            if (projectTipoId.HasValue)
+                query = query.Where(p => p.ProjectTipoId == projectTipoId.Value);
+
+            if (projectCicloVidaId.HasValue)
+                query = query.Where(p => p.ProjectCicloVidaId == projectCicloVidaId.Value);
 
             if (!string.IsNullOrWhiteSpace(ruc))
                 query = query.Where(p => p.Contributor != null && p.Contributor.ContributorRuc.Contains(ruc));
@@ -64,8 +71,13 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                     Codigo             = p.Codigo,
                     Abbreviation       = p.Abbreviation,
                     LevelDescription   = p.LevelDescription,
-                    Estado             = p.Estado,
-                    CicloVida          = p.Activo,
+
+                    ProjectTipoId          = p.ProjectTipoId,
+                    ProjectTipoCodigo      = p.Tipo!.Codigo,
+                    ProjectTipoNombre      = p.Tipo!.Nombre,
+                    ProjectCicloVidaId     = p.ProjectCicloVidaId,
+                    ProjectCicloVidaCodigo = p.CicloVida!.Codigo,
+                    ProjectCicloVidaNombre = p.CicloVida!.Nombre,
 
                     ContributorId                        = p.ContributorId,
                     ContributorRuc                       = p.Contributor != null ? p.Contributor.ContributorRuc           : null,
@@ -145,6 +157,33 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             };
         }
 
+        /// <summary>
+        /// Los dos catálogos del proyecto (tipo y ciclo de vida) en una sola consulta, para los filtros
+        /// y los desplegables. Solo las filas activas: son las que se pueden elegir.
+        /// </summary>
+        public async Task<(List<ProjectCatalogoDto> Tipos, List<ProjectCatalogoDto> CiclosVida)> GetCatalogos()
+        {
+            var filas = await _context.Database
+                .SqlQuery<ProjectCatalogoFila>($"""
+                    SELECT 'TIPO' AS catalogo, project_tipo_id AS id, codigo, nombre, descripcion, orden
+                    FROM project_tipo
+                    WHERE state AND active
+                    UNION ALL
+                    SELECT 'CICLO_VIDA', project_ciclo_vida_id, codigo, nombre, descripcion, orden
+                    FROM project_ciclo_vida
+                    WHERE state AND active
+                    """)
+                .ToListAsync();
+
+            List<ProjectCatalogoDto> De(string catalogo) => filas
+                .Where(f => f.Catalogo == catalogo)
+                .OrderBy(f => f.Orden)
+                .Select(f => new ProjectCatalogoDto { Id = f.Id, Codigo = f.Codigo, Nombre = f.Nombre, Descripcion = f.Descripcion })
+                .ToList();
+
+            return (De("TIPO"), De("CICLO_VIDA"));
+        }
+
         public async Task Create(ProjectCreateDto dto, int userId, bool puedeAsignarResidente)
         {
             var existing = await _context.Project
@@ -156,6 +195,7 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             await ValidarTrabajadoresAsync(
                 puedeAsignarResidente ? Cambia(dto.ResidenteWorkersId, existing?.ResidenteWorkersId) : null,
                 Cambia(dto.WorkersCoordAdminId, existing?.WorkersCoordAdminId));
+            await ValidarCatalogosAsync(dto.ProjectTipoId, dto.ProjectCicloVidaId);
 
             if (existing != null && !existing.State)
             {
@@ -206,6 +246,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             await ValidarTrabajadoresAsync(
                 puedeAsignarResidente ? Cambia(dto.ResidenteWorkersId, project.ResidenteWorkersId) : null,
                 Cambia(dto.WorkersCoordAdminId, project.WorkersCoordAdminId));
+            await ValidarCatalogosAsync(
+                Cambia(dto.ProjectTipoId, project.ProjectTipoId),
+                Cambia(dto.ProjectCicloVidaId, project.ProjectCicloVidaId));
 
             ApplyDtoToEntity(project, dto);
             // El residente da permisos (Cronograma de Hitos): sin el rol que lo asigna, lo que
@@ -445,7 +488,8 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             project.Codigo             = string.IsNullOrWhiteSpace(dto.Codigo)        ? null : dto.Codigo.Trim();
             project.Abbreviation       = string.IsNullOrWhiteSpace(dto.Abbreviation)  ? null : dto.Abbreviation.Trim();
             project.LevelDescription   = dto.LevelDescription?.Trim();
-            project.Estado             = string.IsNullOrWhiteSpace(dto.Estado) ? null : dto.Estado.Trim();
+            project.ProjectTipoId      = dto.ProjectTipoId ?? ProjectTipoIds.Proyecto;
+            project.ProjectCicloVidaId = dto.ProjectCicloVidaId ?? ProjectCicloVidaIds.Activo;
 
             project.ContributorId      = dto.ContributorId;
 
@@ -493,8 +537,9 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
             project.Codigo             = string.IsNullOrWhiteSpace(dto.Codigo)        ? null : dto.Codigo.Trim();
             project.Abbreviation       = string.IsNullOrWhiteSpace(dto.Abbreviation)  ? null : dto.Abbreviation.Trim();
             project.LevelDescription   = dto.LevelDescription?.Trim();
-            project.Estado             = string.IsNullOrWhiteSpace(dto.Estado) ? null : dto.Estado.Trim();
-            project.Activo             = string.IsNullOrWhiteSpace(dto.CicloVida) ? null : dto.CicloVida.Trim();
+            // Sin valor queda el que estaba: Hitos manda el proyecto entero solo para cambiar el activo.
+            if (dto.ProjectTipoId.HasValue)      project.ProjectTipoId      = dto.ProjectTipoId.Value;
+            if (dto.ProjectCicloVidaId.HasValue) project.ProjectCicloVidaId = dto.ProjectCicloVidaId.Value;
 
             project.ContributorId      = dto.ContributorId;
 
@@ -563,6 +608,23 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
                 throw new AbrilException("El trabajador seleccionado como coordinador administrativo no existe.");
         }
 
+        /// <summary>
+        /// El tipo y el ciclo de vida que cambian tienen que existir y estar activos en su catálogo
+        /// (los mismos que ofrecen los desplegables). Un valor que ya estaba no se revalida.
+        /// </summary>
+        private async Task ValidarCatalogosAsync(int? tipoNuevo, int? cicloVidaNuevo)
+        {
+            if (!tipoNuevo.HasValue && !cicloVidaNuevo.HasValue) return;
+
+            var (tipos, ciclosVida) = await GetCatalogos();
+
+            if (tipoNuevo.HasValue && !tipos.Any(t => t.Id == tipoNuevo.Value))
+                throw new AbrilException("El tipo de proyecto seleccionado no existe.");
+
+            if (cicloVidaNuevo.HasValue && !ciclosVida.Any(c => c.Id == cicloVidaNuevo.Value))
+                throw new AbrilException("El ciclo de vida seleccionado no existe.");
+        }
+
         /// <summary>Lat/Lng/RadioGeofenceMetros habilitan el geofencing de Tareo (Arquitectura
         /// Comercial) — sin esto, Marcar tareo siempre cae en REVISAR por "ningún proyecto activo
         /// tiene geolocalización configurada".</summary>
@@ -589,5 +651,17 @@ namespace Abril_Backend.Features.ConfigurationModule.Features.ProjectFeature.Inf
 
             await _context.SaveChangesAsync();
         }
+    }
+
+    /// <summary>Fila cruda de <see cref="ProjectRepository.GetCatalogos"/>: los dos catálogos en una consulta.</summary>
+    internal sealed class ProjectCatalogoFila
+    {
+        /// <summary>TIPO o CICLO_VIDA.</summary>
+        public string Catalogo { get; set; } = string.Empty;
+        public int Id { get; set; }
+        public string Codigo { get; set; } = string.Empty;
+        public string Nombre { get; set; } = string.Empty;
+        public string? Descripcion { get; set; }
+        public int Orden { get; set; }
     }
 }

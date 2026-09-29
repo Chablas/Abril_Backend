@@ -82,6 +82,10 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<FirmaTipo> FirmaTipo { get; set; }
         public DbSet<Sexo> Sexo { get; set; }
         public DbSet<Project> Project { get; set; }
+        /// <summary>Catálogo de qué es cada proyecto: PROYECTO, FFT, OFICINA_CENTRAL, AREA_INTERNA o PRUEBA (ProjectTipoIds).</summary>
+        public DbSet<ProjectTipo> ProjectTipo { get; set; }
+        /// <summary>Catálogo del ciclo de vida del proyecto: activo, finalizado o inactivo (ProjectCicloVidaIds).</summary>
+        public DbSet<ProjectCicloVida> ProjectCicloVida { get; set; }
         /// <summary>Bitácora de cambios del residente del proyecto (la escribe ResidenteHistorialInterceptor).</summary>
         public DbSet<ProjectResidenteHistorial> ProjectResidenteHistorial { get; set; }
         public DbSet<ProjectResident> ProjectResident {get;set;}
@@ -998,6 +1002,22 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(p => p.CoordAdmin)
                 .WithMany()
                 .HasForeignKey(p => p.WorkersCoordAdminId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Tipo y ciclo de vida del proyecto: catálogos con id fijo. Explícitas por lo mismo que
+            // CoordAdmin (las navegaciones no se llaman como la FK y los catálogos no tienen colección
+            // de vuelta).
+            modelBuilder.Entity<ProjectTipo>().ToTable("project_tipo");
+            modelBuilder.Entity<ProjectCicloVida>().ToTable("project_ciclo_vida");
+            modelBuilder.Entity<Project>()
+                .HasOne(p => p.Tipo)
+                .WithMany()
+                .HasForeignKey(p => p.ProjectTipoId)
+                .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<Project>()
+                .HasOne(p => p.CicloVida)
+                .WithMany()
+                .HasForeignKey(p => p.ProjectCicloVidaId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             // Bitácora del residente: FK explícita al proyecto por lo mismo que CoordAdmin (Project no

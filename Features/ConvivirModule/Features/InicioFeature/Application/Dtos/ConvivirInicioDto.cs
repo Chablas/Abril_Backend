@@ -15,5 +15,7 @@ namespace Abril_Backend.Features.ConvivirModule.Features.InicioFeature.Applicati
         public ConvivirAvanceDto? Avance { get; set; }
         /// <summary>Documentos de esa propiedad que todavía no abrió (acceso rápido a «Mis documentos»).</summary>
         public int DocumentosNuevos { get; set; }
+        /// <summary>Avisos sin leer de la campana, de todas sus propiedades (RF-05).</summary>
+        public int NotificacionesNuevas { get; set; }
     }
 }

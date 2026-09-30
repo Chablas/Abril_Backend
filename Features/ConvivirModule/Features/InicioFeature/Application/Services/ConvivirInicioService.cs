@@ -16,7 +16,8 @@ namespace Abril_Backend.Features.ConvivirModule.Features.InicioFeature.Applicati
 
         public async Task<ConvivirInicioDto> GetInicio(int userId, int? propietarioId)
         {
-            var contexto = await _repo.GetContexto(userId, propietarioId);
+            // Con notificaciones: el número de la campana (y la detección de hitos culminados).
+            var contexto = await _repo.GetContexto(userId, propietarioId, conNotificaciones: true);
 
             return new ConvivirInicioDto
             {
@@ -26,6 +27,7 @@ namespace Abril_Backend.Features.ConvivirModule.Features.InicioFeature.Applicati
                 // Inicio muestra solo el resumen; la lista de hitos es de Mi Proyecto.
                 Avance = contexto.Seleccionada == null ? null : AvanceObra.Calcular(contexto).Avance,
                 DocumentosNuevos = contexto.DocumentosNuevos,
+                NotificacionesNuevas = contexto.NotificacionesNuevas,
             };
         }
     }

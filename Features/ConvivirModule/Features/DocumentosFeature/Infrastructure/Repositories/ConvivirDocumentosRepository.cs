@@ -102,11 +102,16 @@ namespace Abril_Backend.Features.ConvivirModule.Features.DocumentosFeature.Infra
 
         public async Task MarcarLeido(int documentoId)
         {
-            // No toca updated_*: abrirlo no es una edición.
+            // No toca updated_*: abrirlo no es una edición. Su aviso de la campana también queda
+            // leído: ya vio el documento.
             const string sql = """
                 UPDATE propietario_documento
                 SET leido_date_time = now()
                 WHERE propietario_documento_id = @DocumentoId AND leido_date_time IS NULL;
+
+                UPDATE propietario_notificacion
+                SET leida_date_time = now()
+                WHERE propietario_documento_id = @DocumentoId AND state AND leida_date_time IS NULL;
                 """;
 
             using var ctx = _factory.CreateDbContext();

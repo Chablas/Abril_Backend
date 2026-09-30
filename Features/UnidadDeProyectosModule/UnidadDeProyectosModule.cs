@@ -14,6 +14,10 @@ using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeatur
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Application.Services;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.ActasReunionFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeature.Application.Interfaces;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeature.Application.Services;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeature.Infrastructure.Repositories;
 using Abril_Backend.Shared.Services.SharePoint.Interfaces;
 using Abril_Backend.Shared.Services.SharePoint.Services;
 // Projects (paged-with-residents) — same feature
@@ -57,6 +61,15 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule
             services.AddScoped<IGraphSharePointService, GraphSharePointService>();
             services.AddScoped<IActasReunionRepository, ActasReunionRepository>();
             services.AddScoped<IActasReunionService, ActasReunionService>();
+
+            // Contratos (locación de servicios con consultores de diseño — distinto de los
+            // contratos de subcontratistas de Adjudicaciones/Costos, aunque reutiliza sus mismas
+            // tablas Contractor/Contributor y WorkSpecialty)
+            services.AddScoped<IProjectContractRepository, ProjectContractRepository>();
+            services.AddScoped<IProjectContractService, ProjectContractService>();
+            services.AddScoped<IProjectContractFolderRepository, ProjectContractFolderRepository>();
+            services.AddScoped<IProjectContractFolderService, ProjectContractFolderService>();
+            services.AddScoped<IProjectContractStorage, ProjectContractStorage>();
 
             return services;
         }

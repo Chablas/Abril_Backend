@@ -63,6 +63,9 @@
     <None Update="Features\UnidadDeProyectosModule\Features\CronogramaActividades\Seeds\**\*">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="Features\UnidadDeProyectosModule\Features\ContratosFeature\Templates\**\*">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

@@ -3,6 +3,7 @@ using System;
 using Abril_Backend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Abril_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260929230825_AddContratosFeature")]
+    partial class AddContratosFeature
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -26587,29 +26590,9 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("numeric")
                         .HasColumnName("amount");
 
-                    b.Property<string>("ArrivalObservation")
-                        .HasColumnType("text")
-                        .HasColumnName("arrival_observation");
-
-                    b.Property<bool?>("ArrivedWithObservations")
-                        .HasColumnType("boolean")
-                        .HasColumnName("arrived_with_observations");
-
-                    b.Property<string>("ContractFileUrl")
-                        .HasColumnType("text")
-                        .HasColumnName("contract_file_url");
-
                     b.Property<int?>("ContractNumber")
                         .HasColumnType("integer")
                         .HasColumnName("contract_number");
-
-                    b.Property<string>("ContractOriginalFileName")
-                        .HasColumnType("text")
-                        .HasColumnName("contract_original_file_name");
-
-                    b.Property<string>("ContractStorageItemId")
-                        .HasColumnType("text")
-                        .HasColumnName("contract_storage_item_id");
 
                     b.Property<string>("ContractorEmail")
                         .HasColumnType("text")
@@ -26618,10 +26601,6 @@ namespace Abril_Backend.Migrations
                     b.Property<int>("ContractorId")
                         .HasColumnType("integer")
                         .HasColumnName("contractor_id");
-
-                    b.Property<bool>("ContractorNotificationSkipped")
-                        .HasColumnType("boolean")
-                        .HasColumnName("contractor_notification_skipped");
 
                     b.Property<DateTime>("CreatedDateTime")
                         .HasColumnType("timestamp with time zone")
@@ -26671,18 +26650,6 @@ namespace Abril_Backend.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("state");
 
-                    b.Property<bool>("Step6SignedGerenteGeneral")
-                        .HasColumnType("boolean")
-                        .HasColumnName("step6signed_gerente_general");
-
-                    b.Property<bool>("Step6SignedGerenteInmobiliario")
-                        .HasColumnType("boolean")
-                        .HasColumnName("step6signed_gerente_inmobiliario");
-
-                    b.Property<bool>("Step6SignedJefeProyectos")
-                        .HasColumnType("boolean")
-                        .HasColumnName("step6signed_jefe_proyectos");
-
                     b.Property<int?>("TermDays")
                         .HasColumnType("integer")
                         .HasColumnName("term_days");
@@ -26703,72 +26670,6 @@ namespace Abril_Backend.Migrations
                         .HasName("pk_project_contract");
 
                     b.ToTable("project_contract", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeature.Infrastructure.Models.ProjectContractFolder", b =>
-                {
-                    b.Property<int>("ProjectContractFolderId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("project_contract_folder_id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ProjectContractFolderId"));
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("boolean")
-                        .HasColumnName("active");
-
-                    b.Property<DateTime>("CreatedDateTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_date_time");
-
-                    b.Property<int>("CreatedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("created_user_id");
-
-                    b.Property<string>("DriveId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("drive_id");
-
-                    b.Property<string>("FolderId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("folder_id");
-
-                    b.Property<string>("FolderName")
-                        .HasColumnType("text")
-                        .HasColumnName("folder_name");
-
-                    b.Property<string>("LinkUrl")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("link_url");
-
-                    b.Property<int>("ProjectId")
-                        .HasColumnType("integer")
-                        .HasColumnName("project_id");
-
-                    b.Property<bool>("State")
-                        .HasColumnType("boolean")
-                        .HasColumnName("state");
-
-                    b.Property<DateTime?>("UpdatedDateTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_date_time");
-
-                    b.Property<int?>("UpdatedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("updated_user_id");
-
-                    b.Property<string>("WebUrl")
-                        .HasColumnType("text")
-                        .HasColumnName("web_url");
-
-                    b.HasKey("ProjectContractFolderId")
-                        .HasName("pk_project_contract_folder");
-
-                    b.ToTable("project_contract_folder", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeature.Infrastructure.Models.ProjectContractMilestone", b =>
@@ -26841,65 +26742,6 @@ namespace Abril_Backend.Migrations
                         .HasName("pk_project_contract_milestone");
 
                     b.ToTable("project_contract_milestone", (string)null);
-                });
-
-            modelBuilder.Entity("Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeature.Infrastructure.Models.ProjectContractScannedDoc", b =>
-                {
-                    b.Property<int>("ProjectContractScannedDocId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("project_contract_scanned_doc_id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ProjectContractScannedDocId"));
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("boolean")
-                        .HasColumnName("active");
-
-                    b.Property<DateTime>("CreatedDateTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_date_time");
-
-                    b.Property<int>("CreatedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("created_user_id");
-
-                    b.Property<string>("FileUrl")
-                        .HasColumnType("text")
-                        .HasColumnName("file_url");
-
-                    b.Property<string>("OriginalFileName")
-                        .HasColumnType("text")
-                        .HasColumnName("original_file_name");
-
-                    b.Property<int>("ProjectContractId")
-                        .HasColumnType("integer")
-                        .HasColumnName("project_contract_id");
-
-                    b.Property<int>("Slot")
-                        .HasColumnType("integer")
-                        .HasColumnName("slot");
-
-                    b.Property<bool>("State")
-                        .HasColumnType("boolean")
-                        .HasColumnName("state");
-
-                    b.Property<string>("StorageItemId")
-                        .HasColumnType("text")
-                        .HasColumnName("storage_item_id");
-
-                    b.Property<DateTime?>("UpdatedDateTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_date_time");
-
-                    b.Property<int?>("UpdatedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("updated_user_id");
-
-                    b.HasKey("ProjectContractScannedDocId")
-                        .HasName("pk_project_contract_scanned_doc");
-
-                    b.ToTable("project_contract_scanned_doc", (string)null);
                 });
 
             modelBuilder.Entity("Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeature.Infrastructure.Models.ProjectContractStatus", b =>

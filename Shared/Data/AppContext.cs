@@ -8,6 +8,7 @@ using Abril_Backend.Features.CostsModule.Features.Configuration.ProjectLinkFeatu
 using Abril_Backend.Features.CostsModule.Features.CronogramaFeature.Infrastructure.Models;
 using Abril_Backend.Features.CostsModule.Features.Configuration.AdjudicacionFolderFeature.Infrastructure.Models;
 using Abril_Backend.Features.CostsModule.Features.Configuration.WorkSpecialtyFeature.Infrastructure.Models;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeature.Infrastructure.Models;
 using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.AccidentesIncidentesFeature.Infrastructure.Models;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models;
@@ -72,6 +73,11 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<MilestoneSchedule> MilestoneSchedule { get; set; }
         public DbSet<MilestoneScheduleHistory> MilestoneScheduleHistory { get; set; }
         public DbSet<OwnerMilestone> OwnerMilestone { get; set; }
+        public DbSet<ProjectContract> ProjectContract { get; set; }
+        public DbSet<ProjectContractFolder> ProjectContractFolder { get; set; }
+        public DbSet<ProjectContractMilestone> ProjectContractMilestone { get; set; }
+        public DbSet<ProjectContractScannedDoc> ProjectContractScannedDoc { get; set; }
+        public DbSet<ProjectContractStatus> ProjectContractStatus { get; set; }
         public DbSet<Notificacion> Notificacion { get; set; }
         public DbSet<NotificacionTipo> NotificacionTipo { get; set; }
         public DbSet<Person> Person { get; set; }
@@ -1638,6 +1644,10 @@ namespace Abril_Backend.Infrastructure.Data
             modelBuilder.Entity<OwnerMilestone>(entity =>
             {
                 entity.Property(e => e.Order).HasColumnName("owner_milestone_order");
+            });
+            modelBuilder.Entity<ProjectContractMilestone>(entity =>
+            {
+                entity.Property(e => e.Order).HasColumnName("project_contract_milestone_order");
             });
             modelBuilder.Entity<AuditoriaCambio>(entity =>
             {

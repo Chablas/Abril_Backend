@@ -41,6 +41,12 @@ namespace Abril_Backend.Shared.Services.Residentes.Services
             ).FirstOrDefaultAsync();
         }
 
+        public async Task<bool> TieneResidenteConRolAsync(int projectId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.SuResidenteConRol(projectId).AnyAsync();
+        }
+
         public async Task<List<int>> ObrasConResidenteAsync()
         {
             using var ctx = _factory.CreateDbContext();

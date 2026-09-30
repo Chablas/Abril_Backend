@@ -6,6 +6,7 @@ using Abril_Backend.Features.Ssoma.Rac.Services;
 using Abril_Backend.Features.SsomaModule.AmonestacionesFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Services;
+using Abril_Backend.Shared.Services.Residentes.Interfaces;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,23 +18,29 @@ public class PenalidadService : IPenalidadService
     private readonly IRacSharePointService _spService;
     private readonly IPenalidadNotificationService _notif;
     private readonly IProyectoResponsablesResolver _responsables;
+    private readonly IResidenteProyectoResolver _residentes;
     private readonly ILogger<PenalidadService> _logger;
 
     // Debe coincidir con PenalidadNotificationService.SsomaBuzon -- se repite acá solo para
     // poder previsualizar el destinatario sin acoplar este servicio al de notificaciones.
     private const string SsomaBuzon = "ssoma@abril.pe";
 
+    private const string SinResidenteQueApruebe =
+        "El proyecto no tiene residente con el rol RESIDENTE en Configuración → Proyectos: nadie podría aprobar la penalidad.";
+
     public PenalidadService(
         IDbContextFactory<AppDbContext> factory,
         IRacSharePointService spService,
         IPenalidadNotificationService notif,
         IProyectoResponsablesResolver responsables,
+        IResidenteProyectoResolver residentes,
         ILogger<PenalidadService> logger)
     {
         _factory      = factory;
         _spService    = spService;
         _notif        = notif;
         _responsables = responsables;
+        _residentes   = residentes;
         _logger       = logger;
     }
 
@@ -166,6 +173,9 @@ public class PenalidadService : IPenalidadService
     /// inicio a quién le va a llegar el primer aviso (a Residencia) si confirma el registro.</summary>
     public async Task<DestinatariosNotificacionDto> GetNotificacionInicialAsync(int proyectoId)
     {
+        if (!await _residentes.TieneResidenteConRolAsync(proyectoId))
+            return new DestinatariosNotificacionDto { Aviso = SinResidenteQueApruebe };
+
         var r = await _responsables.ResolverAsync(proyectoId);
         return new DestinatariosNotificacionDto
         {
@@ -438,6 +448,11 @@ public class PenalidadService : IPenalidadService
         var project = await ctx.Project.FirstOrDefaultAsync(p => p.ProjectId == req.ProyectoId)
             ?? throw new AbrilException("Proyecto no encontrado.", 404);
 
+        // El primer paso lo aprueba solo el residente de la obra (ExigirResidenteDeLaObraAsync): sin
+        // él, la penalidad quedaría trabada en «Pendiente Residente».
+        if (!await _residentes.TieneResidenteConRolAsync(req.ProyectoId))
+            throw new AbrilException(SinResidenteQueApruebe, 422);
+
         var abbrev  = project.Abbreviation ?? req.ProyectoId.ToString();
         var year    = DateTime.UtcNow.Year;
         var nuevoContador = project.ContadorPenalidad + 1;
@@ -477,11 +492,12 @@ public class PenalidadService : IPenalidadService
 
     // ── Aprobación previa (Residente → Gerencia) ─────────────────────────────
 
-    public async Task<PenalidadDetalleDto> AprobarResidenteAsync(int id, int userId)
+    public async Task<PenalidadDetalleDto> AprobarResidenteAsync(int id, int userId, bool esResidente)
     {
         using var ctx = _factory.CreateDbContext();
         var pen = await Cargar(ctx, id);
         Exigir(pen, "PendienteResidente");
+        await ExigirResidenteDeLaObraAsync(pen, userId, esResidente);
 
         pen.AprobadoResidentePorId = userId;
         pen.AprobadoResidenteEn    = DateTime.UtcNow;
@@ -494,17 +510,28 @@ public class PenalidadService : IPenalidadService
         return detalle;
     }
 
-    public async Task<PenalidadDetalleDto> RechazarResidenteAsync(int id, PenalidadRechazarRequest req, int userId)
+    public async Task<PenalidadDetalleDto> RechazarResidenteAsync(int id, PenalidadRechazarRequest req, int userId, bool esResidente)
     {
         using var ctx = _factory.CreateDbContext();
         var pen = await Cargar(ctx, id);
         Exigir(pen, "PendienteResidente");
+        await ExigirResidenteDeLaObraAsync(pen, userId, esResidente);
 
         pen.MotivoRechazoResidente = req.Motivo;
         pen.Estado                 = "Rechazada";
         pen.UpdatedAt              = DateTime.UtcNow;
         await ctx.SaveChangesAsync();
         return await MapDetalleAsync(ctx, pen);
+    }
+
+    /// <summary>El paso «Residente» es solo del residente de la obra: rol RESIDENTE y ser el
+    /// residente del proyecto de la penalidad en Configuración → Proyectos. La funcionalidad
+    /// aprobar-residente abre la acción; esto dice de qué obra. Antes bastaba la funcionalidad,
+    /// en cualquier obra.</summary>
+    private async Task ExigirResidenteDeLaObraAsync(SsomaPenalidad pen, int userId, bool esResidente)
+    {
+        if (!esResidente || !await _residentes.EsResidenteDelProyectoAsync(userId, pen.ProyectoId))
+            throw new AbrilException("Solo el residente de la obra puede aprobar o rechazar la penalidad en este paso.", 403);
     }
 
     public async Task<PenalidadDetalleDto> AprobarGerenciaAsync(int id, int userId)

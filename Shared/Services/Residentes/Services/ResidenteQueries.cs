@@ -36,10 +36,20 @@ namespace Abril_Backend.Shared.Services.Residentes.Services
         /// residente (ficha, persona y usuario), para quien necesita saber quién es el residente de
         /// cada obra y no solo qué obras hay (p. ej. Evaluaciones 360°).</summary>
         public static IQueryable<ObraConResidente> ObrasConSuResidente(this AppDbContext ctx) =>
-            from p in ctx.Project
-            where p.Active && p.State
-               && p.Tipo!.EsObra
-               && p.ProjectCicloVidaId == ProjectCicloVidaIds.Activo
+            ctx.ConSuResidenteConRol(ctx.Project.Where(p => p.Active && p.State
+                && p.Tipo!.EsObra
+                && p.ProjectCicloVidaId == ProjectCicloVidaIds.Activo));
+
+        /// <summary>El residente del proyecto si puede actuar como tal (usuario vigente con el rol
+        /// RESIDENTE), sin mirar el tipo ni el ciclo de vida del proyecto: vacío si no lo hay.</summary>
+        public static IQueryable<ObraConResidente> SuResidenteConRol(this AppDbContext ctx, int projectId) =>
+            ctx.ConSuResidenteConRol(ctx.Project.Where(p => p.ProjectId == projectId));
+
+        /// <summary>Cada proyecto de <paramref name="proyectos"/> con su residente, cuando la persona
+        /// de la ficha tiene usuario vigente con el rol RESIDENTE. Es la única definición de «residente
+        /// con rol»: el rol dice que es residente y el proyecto, de qué obra.</summary>
+        private static IQueryable<ObraConResidente> ConSuResidenteConRol(this AppDbContext ctx, IQueryable<Project> proyectos) =>
+            from p in proyectos
             join w in ctx.Worker on p.ResidenteWorkersId equals (int?)w.Id
             join pe in ctx.Person on w.PersonId equals (int?)pe.PersonId
             join u in ctx.User on pe.UserId equals (int?)u.UserId

@@ -58,6 +58,9 @@ public class DestinatariosNotificacionDto
     public List<string> Para { get; set; } = new();
     public List<string> Cc { get; set; } = new();
     public string Motivo { get; set; } = "";
+    /// <summary>Solo en la notificación inicial: por qué no se puede registrar la penalidad en ese
+    /// proyecto (hoy, que no tiene residente que la apruebe). Null si se puede.</summary>
+    public string? Aviso { get; set; }
 }
 
 public class PenalidadDetalleDto : PenalidadListItemDto

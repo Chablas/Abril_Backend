@@ -23,17 +23,17 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
         /// <summary>
         /// Regla de alcance del REVISOR según su categoría:
-        ///   • Residente → SOLO puede revisar lecciones de los proyectos que tiene
-        ///     asignados en user_project (worker). Si <paramref name="projectId"/> no
-        ///     es uno de ellos → false.
+        ///   • Residente → SOLO puede revisar lecciones de los proyectos donde es el
+        ///     residente en Configuración → Proyectos (IResidenteProyectoResolver). Si
+        ///     <paramref name="projectId"/> no es uno de ellos → false.
         ///   • Cualquier otra categoría → true (sin restricción de proyecto).
         /// </summary>
         Task<bool> CanReviewProjectAsync(int reviewerUserId, int? projectId);
 
         /// <summary>
-        /// Si el revisor es Residente, devuelve los project_id que tiene asignados en
-        /// user_project (para acotar el listado "Pendientes de mi revisión"). Devuelve
-        /// null si NO es Residente (sin restricción de proyecto).
+        /// Si el revisor es Residente, devuelve los project_id donde es el residente en
+        /// Configuración → Proyectos (para acotar el listado "Pendientes de mi revisión").
+        /// Devuelve null si NO es Residente (sin restricción de proyecto).
         /// </summary>
         Task<List<int>?> GetResidenteProjectScopeAsync(int reviewerUserId);
     }

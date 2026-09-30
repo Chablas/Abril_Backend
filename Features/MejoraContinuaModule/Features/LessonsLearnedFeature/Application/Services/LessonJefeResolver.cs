@@ -1,6 +1,7 @@
 ﻿using Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
+using Abril_Backend.Shared.Services.Residentes.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFeature.Application.Services
@@ -73,15 +74,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
 
             if (!projectId.HasValue) return false;
 
-            return await (
-                from up in ctx.UserProject
-                join w in ctx.Worker on up.WorkerId equals w.Id
-                join p in ctx.Person on w.PersonId equals p.PersonId
-                where p.UserId == reviewerUserId
-                      && up.ProjectId == projectId.Value
-                      && up.State && up.Active
-                select up.UserProjectId
-            ).AnyAsync();
+            // Sus proyectos son aquellos donde es el residente en Configuración → Proyectos
+            // (ya no los de user_project, que es el staff que sube lecciones).
+            return await ctx.ProyectosDelResidente(reviewerUserId).AnyAsync(id => id == projectId.Value);
         }
 
         public async Task<List<int>?> GetResidenteProjectScopeAsync(int reviewerUserId)
@@ -92,13 +87,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
             if (categoriaId != CategoriaIds.Residente)
                 return null; // no es Residente → sin restricción de proyecto
 
-            return await (
-                from up in ctx.UserProject
-                join w in ctx.Worker on up.WorkerId equals w.Id
-                join p in ctx.Person on w.PersonId equals p.PersonId
-                where p.UserId == reviewerUserId && up.State && up.Active
-                select up.ProjectId
-            ).Distinct().ToListAsync();
+            return await ctx.ProyectosDelResidente(reviewerUserId).Distinct().ToListAsync();
         }
 
         /// <summary>Categoría del usuario revisor, leída de su puesto

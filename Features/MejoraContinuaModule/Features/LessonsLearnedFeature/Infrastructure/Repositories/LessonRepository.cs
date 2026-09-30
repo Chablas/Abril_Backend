@@ -273,7 +273,7 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                     return new PagedResult<LessonListDTO> { Page = page, PageSize = pageSize, TotalRecords = 0, TotalPages = 0, Data = new List<LessonListDTO>() };
                 query = query.Where(x => x.ApprovalStatus == "PENDIENTE" && subordinateUserIds.Contains(x.CreatedUserId));
 
-                // Si el revisor es Residente, acotar a sus proyectos asignados (user_project).
+                // Si el revisor es Residente, acotar a sus obras (Configuración → Proyectos).
                 var residenteProjectScope = await _jefeResolver.GetResidenteProjectScopeAsync(currentUserId);
                 if (residenteProjectScope != null)
                     query = query.Where(x => x.ProjectId.HasValue && residenteProjectScope.Contains(x.ProjectId.Value));
@@ -919,9 +919,9 @@ namespace Abril_Backend.Features.MejoraContinuaModule.Features.LessonsLearnedFea
                 throw new AbrilException("No tienes permiso para revisar esta lección.", 403);
 
             // Si el revisor es Residente, solo puede revisar lecciones de los proyectos
-            // que tiene asignados en user_project.
+            // donde es el residente (Configuración → Proyectos).
             if (!await _jefeResolver.CanReviewProjectAsync(currentUserId, lesson.ProjectId))
-                throw new AbrilException("Como Residente, solo puedes revisar lecciones de los proyectos que tienes asignados.", 403);
+                throw new AbrilException("Como Residente, solo puedes revisar lecciones de los proyectos donde eres el residente.", 403);
 
             lesson.ApprovalStatus = approved ? "APROBADA" : "RECHAZADA";
             lesson.RejectionComment = approved ? null : comment;

@@ -52,6 +52,14 @@ public interface IAtsRepository
     /// correo cuando el ejecutante firma.</summary>
     Task<AtsResponsablesDto> GetResponsables(int proyectoId);
 
+    /// <summary>Ingeniero o Arquitecto de Producción vinculado ACTUALMENTE a ese proyecto (por
+    /// puesto, no hay un campo dedicado como el de Residente) — también puede Autorizar.</summary>
+    Task<bool> EsProduccionDeProyecto(int workerId, int proyectoId);
+
+    /// <summary>Cualquier prevencionista de Abril (puesto "Prevencionista", ContrataCasa="Casa"),
+    /// sin importar el proyecto — puede dar Visto Bueno SSOMA en cualquier ATS que no sea el suyo.</summary>
+    Task<bool> EsPrevencionistaAbril(int workerId);
+
     Task<string?> GetEmailDeUsuario(int userId);
     Task<string?> GetEmailCorporativoWorker(int workerId);
 

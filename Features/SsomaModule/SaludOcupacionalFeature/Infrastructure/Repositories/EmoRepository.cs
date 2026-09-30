@@ -880,6 +880,22 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 }
                 emo.InterconsultaResuelta = true;
 
+                // La cita ligada a este EMO también se cierra: InterconsultaRepository.UpdateResultado
+                // ya lo hace por su camino, pero editar el EMO a mano no la tocaba y la programación
+                // quedaba "En Interconsulta" para siempre aunque el EMO ya estuviera Vigente/Apto.
+                // Solo con aptitud terminal y solo si sigue "En Interconsulta" (no pisa otros estados).
+                if (dto.Aptitud == "Apto" || dto.Aptitud == "Apto con Restricciones")
+                {
+                    var progEnInterconsulta = await ctx.SsProgramacionEmo
+                        .Where(p => p.EmoResultadoId == id && p.State && p.Estado == "En Interconsulta")
+                        .ToListAsync();
+                    foreach (var prog in progEnInterconsulta)
+                    {
+                        prog.Estado = "Completado";
+                        prog.UpdatedAt = DateTimeOffset.UtcNow;
+                    }
+                }
+
                 // Se persiste ya: SincronizarEntregableEmoAsync (más abajo) consulta
                 // ss_interconsultas directo contra la base para decidir si el Certificado de
                 // Aptitud puede pasar a "Aprobado" — sin este guardado intermedio vería el

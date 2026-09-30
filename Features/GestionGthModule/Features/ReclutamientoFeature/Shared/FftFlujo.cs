@@ -342,6 +342,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
         private static async Task<Worker?> AbrirFichaPreIngresoAsync(
             AppDbContext ctx, int personId, GthRequerimiento req, DateTimeOffset now)
         {
+            var dniPersona = await ctx.Person.Where(p => p.PersonId == personId)
+                .Select(p => p.DocumentIdentityCode).FirstOrDefaultAsync();
+            if (await Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
+                    .TrabajadorRestringidoRepository.EstaRestringidoAsync(ctx, dniPersona))
+                throw new Abril_Backend.Application.Exceptions.AbrilException(
+                    "El trabajador se encuentra en la lista de restringidos y no puede ser contratado.", 400);
+
             var areaSolicitante = await ctx.GthSolicitud
                 .Where(s => s.GthSolicitudId == req.GthSolicitudId)
                 .Select(s => s.AreaScopeId)

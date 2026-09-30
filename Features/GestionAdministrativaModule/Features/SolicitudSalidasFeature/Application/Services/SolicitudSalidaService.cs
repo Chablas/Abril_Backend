@@ -1250,11 +1250,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             return carpeta;
         }
 
-        /// <summary>Extensiones aceptadas para una captura de movilidad.</summary>
-        private static readonly string[] CapturaExtensiones = { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
+        /// <summary>
+        /// Extensiones aceptadas para una captura de movilidad. El PDF entra porque es lo que emiten
+        /// algunas apps de taxi (Uber manda el recibo en PDF, no en imagen).
+        /// </summary>
+        private static readonly string[] CapturaExtensiones = { ".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf" };
 
         /// <summary>
-        /// Sube UNA imagen de captura a la carpeta ya resuelta y devuelve dónde quedó. El nombre
+        /// Sube UNA captura (imagen o PDF) a la carpeta ya resuelta y devuelve dónde quedó. El nombre
         /// lleva solicitud, trayecto y marca de tiempo, así que un reemplazo nunca pisa al archivo
         /// anterior: el sustento viejo sigue en la biblioteca.
         /// </summary>
@@ -1263,7 +1266,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
         {
             var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
             if (!CapturaExtensiones.Contains(ext))
-                throw new AbrilException($"Tipo de archivo no permitido: {file.FileName}. Solo JPG/PNG/WEBP/GIF.", 400);
+                throw new AbrilException($"Tipo de archivo no permitido: {file.FileName}. Solo JPG/PNG/WEBP/GIF/PDF.", 400);
 
             var safeName = SanitizeFilename(Path.GetFileNameWithoutExtension(file.FileName));
             var stamp    = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");

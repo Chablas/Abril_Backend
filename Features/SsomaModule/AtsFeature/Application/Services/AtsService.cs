@@ -47,40 +47,10 @@ public class AtsService : IAtsService
 
     public Task<int> ResolverWorkerId(int userId) => _repository.ResolverWorkerIdAsync(userId);
 
-    /// <summary>Cada _repository.Get* abre su propio DbContext (IDbContextFactory) — antes se
-    /// esperaban una por una (9 round trips secuenciales a la BD cada vez que se abre "Nuevo
-    /// ATS"). Como no comparten contexto, es seguro dispararlas todas en paralelo con
-    /// Task.WhenAll: el tiempo total pasa a ser el de la más lenta, no la suma de las 9.</summary>
-    public async Task<AtsInitDto> GetInit(int workerId)
-    {
-        var (puestoId, proyectoActualId) = await _repository.GetPuestoYProyectoActual(workerId);
-
-        var proyectosTask = _repository.GetProyectosActivos();
-        var pasosTask = _repository.GetPasosParaPuesto(puestoId);
-        var peligrosTask = _repository.GetPeligrosConRiesgos();
-        var eppsTask = _repository.GetEppActivos();
-        var herramientasTask = _repository.GetHerramientasActivas();
-        var plantillasTask = _repository.GetPlantillasActivas();
-        var plantillaSugeridaTask = _repository.GetPlantillaSugerida(puestoId);
-        var tieneConsentimientoTask = _repository.TieneConsentimiento(workerId);
-
-        await Task.WhenAll(proyectosTask, pasosTask, peligrosTask, eppsTask, herramientasTask,
-            plantillasTask, plantillaSugeridaTask, tieneConsentimientoTask);
-
-        return new AtsInitDto
-        {
-            Proyectos = await proyectosTask,
-            ProyectoActualId = proyectoActualId,
-            PuestoId = puestoId,
-            Pasos = await pasosTask,
-            Peligros = await peligrosTask,
-            Epps = await eppsTask,
-            Herramientas = await herramientasTask,
-            Plantillas = await plantillasTask,
-            PlantillaSugeridaId = await plantillaSugeridaTask,
-            TieneConsentimiento = await tieneConsentimientoTask,
-        };
-    }
+    /// <summary>Un solo viaje a la BD con una sola conexión (ver AtsRepository.GetInit). Antes eran
+    /// ~11 consultas, 8 de ellas en paralelo con Task.WhenAll, cada una con su propio DbContext y
+    /// su conexión del pool: con la BD, Task.WhenAll solo gasta conexiones.</summary>
+    public Task<AtsInitDto> GetInit(int workerId) => _repository.GetInit(workerId);
 
     public async Task<AtsPasoDto> CrearPasoPersonalizado(int categoriaId, string texto)
     {

@@ -8,21 +8,21 @@ public interface IAtsRepository
     Task<int> ResolverWorkerIdAsync(int userId);
     Task<(int? PuestoId, int? ProyectoActualId)> GetPuestoYProyectoActual(int workerId);
 
-    Task<List<AtsCategoriaPasoDto>> GetPasosParaPuesto(int? puestoId);
+    /// <summary>Todo lo que necesita "Nuevo ATS" (y la administración de plantillas/pasos) en un
+    /// solo viaje a la BD: puesto y proyecto actual del trabajador, proyectos, pasos de su puesto,
+    /// peligros con riesgos, EPP, herramientas, plantillas, plantilla sugerida y consentimiento.</summary>
+    Task<AtsInitDto> GetInit(int workerId);
+
     Task<AtsPasoDto> CrearPasoPersonalizado(int categoriaId, string texto);
     Task<List<AtsPeligroDto>> GetPeligrosConRiesgos();
 
     /// <summary>El Coordinador SSOMA marca manualmente qué riesgos exigen PETAR — nunca un valor
     /// por defecto del sistema, es una decisión de catálogo que le corresponde a la persona.</summary>
     Task SetRiesgoRequierePetar(int riesgoId, bool requierePetar);
-    Task<List<AtsEppDto>> GetEppActivos();
-    Task<List<AtsHerramientaDto>> GetHerramientasActivas();
-    Task<List<AtsProyectoDto>> GetProyectosActivos();
     Task<List<AtsPlantillaDto>> GetPlantillasActivas();
     Task<List<AtsPuestoDto>> GetPuestos();
     Task<List<AtsPasoPuestoDto>> GetPasoPuestoMapeo();
     Task SetPasoPuestos(int pasoId, List<int> puestoIds);
-    Task<int?> GetPlantillaSugerida(int? puestoId);
     Task<List<AtsPlantillaPuestoDto>> GetPlantillaPuestoMapeo();
     Task SetPlantillaPuestos(int plantillaId, List<int> puestoIds);
 

@@ -5,6 +5,7 @@ using Abril_Backend.Features.SsomaModule.AtsFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
+using Dapper;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Repositories;
@@ -51,33 +52,157 @@ public class AtsRepository : IAtsRepository
         return (worker?.PuestoId, vinculacionVigente?.ProyectoId);
     }
 
-    public async Task<List<AtsCategoriaPasoDto>> GetPasosParaPuesto(int? puestoId)
+    /// <summary>Peligros activos y sus riesgos activos, en dos resultados que arma
+    /// <see cref="LeerPeligros"/>. Lo usan <see cref="GetInit"/> y <see cref="GetPeligrosConRiesgos"/>.</summary>
+    private const string PeligrosSql = """
+        SELECT pe.id AS "Id", pe.nombre AS "Nombre"
+        FROM ss_ats_peligro pe
+        WHERE pe.activo
+        ORDER BY pe.orden, pe.id;
+
+        SELECT r.peligro_id AS "PeligroId", r.id AS "Id", r.nombre AS "Nombre", r.requiere_petar AS "RequierePetar"
+        FROM ss_ats_riesgo r
+        JOIN ss_ats_peligro pe ON pe.id = r.peligro_id AND pe.activo
+        WHERE r.activo
+        ORDER BY r.orden, r.id;
+        """;
+
+    /// <summary>Plantillas activas y sus peligros, EPP y herramientas, en cuatro resultados que arma
+    /// <see cref="LeerPlantillas"/> (antes, un Include de tres colecciones: producto cartesiano). Lo
+    /// usan <see cref="GetInit"/> y <see cref="GetPlantillasActivas"/>.</summary>
+    private const string PlantillasSql = """
+        SELECT pl.id AS "Id", pl.nombre AS "Nombre", pl.puesto_id AS "PuestoId"
+        FROM ss_ats_plantilla pl
+        WHERE pl.activo
+        ORDER BY pl.id;
+
+        SELECT x.plantilla_id AS "PlantillaId", x.peligro_id AS "Id"
+        FROM ss_ats_plantilla_peligro x
+        JOIN ss_ats_plantilla pl ON pl.id = x.plantilla_id AND pl.activo
+        ORDER BY x.id;
+
+        SELECT x.plantilla_id AS "PlantillaId", x.epp_id AS "Id"
+        FROM ss_ats_plantilla_epp x
+        JOIN ss_ats_plantilla pl ON pl.id = x.plantilla_id AND pl.activo
+        ORDER BY x.id;
+
+        SELECT x.plantilla_id AS "PlantillaId", x.herramienta_id AS "Id"
+        FROM ss_ats_plantilla_herramienta x
+        JOIN ss_ats_plantilla pl ON pl.id = x.plantilla_id AND pl.activo
+        ORDER BY x.id;
+        """;
+
+    /// <summary>
+    /// Lote de <see cref="GetInit"/>, en el orden en que se lee. Los pasos son los activos de las
+    /// categorías activas que le tocan al puesto del trabajador: los de las categorías universales y
+    /// los mapeados a su puesto en ss_ats_paso_puesto (sin puesto, solo los universales). La
+    /// plantilla sugerida es la primera mapeada a su puesto (ss_ats_plantilla_puesto).
+    /// </summary>
+    private const string InitSql = """
+        SELECT (SELECT w.puesto_id FROM workers w WHERE w.id = @workerId AND w.state) AS "PuestoId",
+               (SELECT v.proyecto_id FROM worker_vinculaciones v
+                 WHERE v.worker_id = @workerId AND v.fecha_fin IS NULL
+                 ORDER BY v.id DESC LIMIT 1) AS "ProyectoActualId";
+
+        SELECT p.project_id AS "Id", p.project_description AS "Nombre"
+        FROM project p
+        WHERE p.active
+        ORDER BY p.project_description;
+
+        SELECT c.id AS "CategoriaId", c.nombre AS "CategoriaNombre",
+               p.id AS "Id", p.texto AS "Texto", p.requiere_petar AS "RequierePetar"
+        FROM ss_ats_categoria_paso c
+        JOIN ss_ats_paso p ON p.categoria_id = c.id AND p.activo
+        WHERE c.activo
+          AND (c.nombre = ANY(@universales)
+               OR p.id IN (SELECT pp.paso_id FROM ss_ats_paso_puesto pp
+                           WHERE pp.puesto_id = (SELECT w.puesto_id FROM workers w WHERE w.id = @workerId AND w.state)))
+        ORDER BY c.orden, c.id, p.orden, p.id;
+        """ + "\n" + PeligrosSql + "\n" + """
+        SELECT e.id AS "Id", e.nombre AS "Nombre", e.categoria AS "Categoria"
+        FROM ss_ats_epp e
+        WHERE e.activo
+        ORDER BY e.orden, e.id;
+
+        SELECT h.id AS "Id", h.nombre AS "Nombre", h.categoria AS "Categoria"
+        FROM ss_ats_herramienta h
+        WHERE h.activo
+        ORDER BY h.categoria, h.orden, h.id;
+        """ + "\n" + PlantillasSql + "\n" + """
+        SELECT pp.plantilla_id
+        FROM ss_ats_plantilla_puesto pp
+        JOIN ss_ats_plantilla pl ON pl.id = pp.plantilla_id AND pl.activo
+        WHERE pp.puesto_id = (SELECT w.puesto_id FROM workers w WHERE w.id = @workerId AND w.state)
+        ORDER BY pp.id
+        LIMIT 1;
+
+        SELECT EXISTS (SELECT 1 FROM ss_ats_consentimiento c WHERE c.worker_id = @workerId);
+        """;
+
+    public async Task<AtsInitDto> GetInit(int workerId)
     {
         using var ctx = _factory.CreateDbContext();
+        var conn = ctx.Database.GetDbConnection();
+        await conn.OpenAsync();
+        using var multi = await conn.QueryMultipleAsync(InitSql, new { workerId, universales = CategoriasUniversales });
 
-        var categorias = await ctx.SsAtsCategoriaPaso
-            .Where(c => c.Activo)
-            .OrderBy(c => c.Orden)
-            .Include(c => c.Pasos.Where(p => p.Activo))
-            .ToListAsync();
-
-        var pasoIdsPermitidos = puestoId.HasValue
-            ? await ctx.SsAtsPasoPuesto.Where(pp => pp.PuestoId == puestoId).Select(pp => pp.PasoId).ToListAsync()
-            : [];
-
-        return categorias
-            .Select(c => new AtsCategoriaPasoDto
+        var trabajador = await multi.ReadSingleAsync<AtsInitTrabajadorFila>();
+        var proyectos = (await multi.ReadAsync<AtsProyectoDto>()).ToList();
+        var pasos = (await multi.ReadAsync<AtsPasoFila>())
+            .GroupBy(f => (f.CategoriaId, f.CategoriaNombre))
+            .Select(g => new AtsCategoriaPasoDto
             {
-                Id = c.Id,
-                Nombre = c.Nombre,
-                Pasos = c.Pasos
-                    .Where(p => CategoriasUniversales.Contains(c.Nombre) || pasoIdsPermitidos.Contains(p.Id))
-                    .OrderBy(p => p.Orden)
-                    .Select(p => new AtsPasoDto { Id = p.Id, Texto = p.Texto, RequierePetar = p.RequierePetar })
-                    .ToList(),
+                Id = g.Key.CategoriaId,
+                Nombre = g.Key.CategoriaNombre,
+                Pasos = g.Select(f => new AtsPasoDto { Id = f.Id, Texto = f.Texto, RequierePetar = f.RequierePetar }).ToList(),
             })
-            .Where(c => c.Pasos.Count > 0)
             .ToList();
+        var peligros = await LeerPeligros(multi);
+        var epps = (await multi.ReadAsync<AtsEppDto>()).ToList();
+        var herramientas = (await multi.ReadAsync<AtsHerramientaDto>()).ToList();
+        var plantillas = await LeerPlantillas(multi);
+        var plantillaSugeridaId = await multi.ReadFirstOrDefaultAsync<int?>();
+        var tieneConsentimiento = await multi.ReadSingleAsync<bool>();
+
+        return new AtsInitDto
+        {
+            Proyectos = proyectos,
+            ProyectoActualId = trabajador.ProyectoActualId,
+            PuestoId = trabajador.PuestoId,
+            Pasos = pasos,
+            Peligros = peligros,
+            Epps = epps,
+            Herramientas = herramientas,
+            Plantillas = plantillas,
+            PlantillaSugeridaId = plantillaSugeridaId,
+            TieneConsentimiento = tieneConsentimiento,
+        };
+    }
+
+    private static async Task<List<AtsPeligroDto>> LeerPeligros(SqlMapper.GridReader multi)
+    {
+        var peligros = (await multi.ReadAsync<AtsPeligroDto>()).ToList();
+        var riesgos = (await multi.ReadAsync<AtsRiesgoFila>()).ToLookup(r => r.PeligroId);
+        foreach (var p in peligros)
+            p.Riesgos = riesgos[p.Id]
+                .Select(r => new AtsRiesgoDto { Id = r.Id, Nombre = r.Nombre, RequierePetar = r.RequierePetar })
+                .ToList();
+        return peligros;
+    }
+
+    private static async Task<List<AtsPlantillaDto>> LeerPlantillas(SqlMapper.GridReader multi)
+    {
+        var plantillas = (await multi.ReadAsync<AtsPlantillaDto>()).ToList();
+        var peligros = (await multi.ReadAsync<AtsPlantillaItemFila>()).ToLookup(x => x.PlantillaId, x => x.Id);
+        var epps = (await multi.ReadAsync<AtsPlantillaItemFila>()).ToLookup(x => x.PlantillaId, x => x.Id);
+        var herramientas = (await multi.ReadAsync<AtsPlantillaItemFila>()).ToLookup(x => x.PlantillaId, x => x.Id);
+        foreach (var p in plantillas)
+        {
+            p.PeligroIds = peligros[p.Id].ToList();
+            p.EppIds = epps[p.Id].ToList();
+            p.HerramientaIds = herramientas[p.Id].ToList();
+        }
+        return plantillas;
     }
 
     /// <summary>
@@ -101,20 +226,10 @@ public class AtsRepository : IAtsRepository
     public async Task<List<AtsPeligroDto>> GetPeligrosConRiesgos()
     {
         using var ctx = _factory.CreateDbContext();
-        var peligros = await ctx.SsAtsPeligro
-            .Where(p => p.Activo)
-            .OrderBy(p => p.Orden)
-            .Include(p => p.Riesgos.Where(r => r.Activo))
-            .ToListAsync();
-
-        return peligros.Select(p => new AtsPeligroDto
-        {
-            Id = p.Id,
-            Nombre = p.Nombre,
-            Riesgos = p.Riesgos.OrderBy(r => r.Orden)
-                .Select(r => new AtsRiesgoDto { Id = r.Id, Nombre = r.Nombre, RequierePetar = r.RequierePetar })
-                .ToList(),
-        }).ToList();
+        var conn = ctx.Database.GetDbConnection();
+        await conn.OpenAsync();
+        using var multi = await conn.QueryMultipleAsync(PeligrosSql);
+        return await LeerPeligros(multi);
     }
 
     public async Task SetRiesgoRequierePetar(int riesgoId, bool requierePetar)
@@ -126,46 +241,13 @@ public class AtsRepository : IAtsRepository
         await ctx.SaveChangesAsync();
     }
 
-    public async Task<List<AtsEppDto>> GetEppActivos()
-    {
-        using var ctx = _factory.CreateDbContext();
-        return await ctx.SsAtsEpp.Where(e => e.Activo).OrderBy(e => e.Orden)
-            .Select(e => new AtsEppDto { Id = e.Id, Nombre = e.Nombre, Categoria = e.Categoria }).ToListAsync();
-    }
-
-    public async Task<List<AtsHerramientaDto>> GetHerramientasActivas()
-    {
-        using var ctx = _factory.CreateDbContext();
-        return await ctx.SsAtsHerramienta.Where(h => h.Activo).OrderBy(h => h.Categoria).ThenBy(h => h.Orden)
-            .Select(h => new AtsHerramientaDto { Id = h.Id, Nombre = h.Nombre, Categoria = h.Categoria }).ToListAsync();
-    }
-
-    public async Task<List<AtsProyectoDto>> GetProyectosActivos()
-    {
-        using var ctx = _factory.CreateDbContext();
-        return await ctx.Project.Where(p => p.Active).OrderBy(p => p.ProjectDescription)
-            .Select(p => new AtsProyectoDto { Id = p.ProjectId, Nombre = p.ProjectDescription }).ToListAsync();
-    }
-
     public async Task<List<AtsPlantillaDto>> GetPlantillasActivas()
     {
         using var ctx = _factory.CreateDbContext();
-        var plantillas = await ctx.SsAtsPlantilla
-            .Where(p => p.Activo)
-            .Include(p => p.Peligros)
-            .Include(p => p.Epps)
-            .Include(p => p.Herramientas)
-            .ToListAsync();
-
-        return plantillas.Select(p => new AtsPlantillaDto
-        {
-            Id = p.Id,
-            Nombre = p.Nombre,
-            PuestoId = p.PuestoId,
-            PeligroIds = p.Peligros.Select(x => x.PeligroId).ToList(),
-            EppIds = p.Epps.Select(x => x.EppId).ToList(),
-            HerramientaIds = p.Herramientas.Select(x => x.HerramientaId).ToList(),
-        }).ToList();
+        var conn = ctx.Database.GetDbConnection();
+        await conn.OpenAsync();
+        using var multi = await conn.QueryMultipleAsync(PlantillasSql);
+        return await LeerPlantillas(multi);
     }
 
     public async Task<List<AtsPuestoDto>> GetPuestos()
@@ -209,16 +291,6 @@ public class AtsRepository : IAtsRepository
             ctx.SsAtsPasoPuesto.Add(new SsAtsPasoPuesto { PasoId = pasoId, PuestoId = puestoId });
 
         await ctx.SaveChangesAsync();
-    }
-
-    public async Task<int?> GetPlantillaSugerida(int? puestoId)
-    {
-        if (!puestoId.HasValue) return null;
-        using var ctx = _factory.CreateDbContext();
-        return await ctx.SsAtsPlantillaPuesto
-            .Where(pp => pp.PuestoId == puestoId && pp.Plantilla!.Activo)
-            .Select(pp => (int?)pp.PlantillaId)
-            .FirstOrDefaultAsync();
     }
 
     public async Task<List<AtsPlantillaPuestoDto>> GetPlantillaPuestoMapeo()
@@ -1190,4 +1262,37 @@ public class AtsRepository : IAtsRepository
         var payload = $"{atsId}|{workerId}|{firmaHash}|{selfieHash}|{horaServidorFirma:O}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
+}
+
+/// <summary>Primera fila de <see cref="AtsRepository.GetInit"/>: puesto y proyecto actual del trabajador.</summary>
+internal sealed class AtsInitTrabajadorFila
+{
+    public int? PuestoId { get; set; }
+    public int? ProyectoActualId { get; set; }
+}
+
+/// <summary>Un paso con su categoría, antes de agruparlos en <see cref="AtsRepository.GetInit"/>.</summary>
+internal sealed class AtsPasoFila
+{
+    public int CategoriaId { get; set; }
+    public string CategoriaNombre { get; set; } = string.Empty;
+    public int Id { get; set; }
+    public string Texto { get; set; } = string.Empty;
+    public bool RequierePetar { get; set; }
+}
+
+/// <summary>Un riesgo con su peligro, antes de agruparlos por peligro.</summary>
+internal sealed class AtsRiesgoFila
+{
+    public int PeligroId { get; set; }
+    public int Id { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+    public bool RequierePetar { get; set; }
+}
+
+/// <summary>Un peligro, EPP o herramienta de una plantilla, antes de agruparlos por plantilla.</summary>
+internal sealed class AtsPlantillaItemFila
+{
+    public int PlantillaId { get; set; }
+    public int Id { get; set; }
 }

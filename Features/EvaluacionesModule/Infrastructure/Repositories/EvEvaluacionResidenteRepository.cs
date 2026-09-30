@@ -156,8 +156,13 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             if (evaluador.CategoriaId == CategoriaIds.Gerente && Eq(evaluador.Area, "Proyectos"))
                 return [];
 
-            // No es `const` porque interpola el id de la categoría RESIDENTE.
-            string selectBase = $@"
+            // Residentes evaluables: el residente de cada obra en Configuración → Proyectos, una
+            // fila por obra (ver EvResidentesEvaluables). Ya no salen del puesto ni de la
+            // vinculación: la obra es la del proyecto, no la vinculación del residente.
+            var residentes = await EvResidentesEvaluables.CargarAsync(ctx);
+            if (residentes.Vacio) return [];
+
+            const string selectBase = @"
                 SELECT DISTINCT
                     p.full_name            AS NombreCompleto,
                     p.user_id              AS UserId,
@@ -165,22 +170,11 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     pr.project_description AS ProjectNombre,
                     w.area                 AS Area,
                     w.subarea              AS Subarea
-                FROM workers w
+                FROM unnest(@ObraIds, @ResidenteWorkerIds) AS r(project_id, worker_id)
+                JOIN project pr ON pr.project_id = r.project_id
+                JOIN workers w  ON w.id = r.worker_id
                 JOIN person p   ON p.person_id = w.person_id
-                JOIN app_user u ON u.user_id   = p.user_id
-                JOIN puesto pu  ON pu.puesto_id = w.puesto_id
-                JOIN project pr ON pr.project_id = (
-                    SELECT wv.proyecto_id
-                    FROM worker_vinculaciones wv
-                    WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL
-                    ORDER BY wv.fecha_inicio DESC
-                    LIMIT 1
-                )
-                WHERE w.state
-                  AND pu.categoria_id = {CategoriaIds.Residente}
-                  AND w.contrata_casa = 'Casa'
-                  AND w.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
-                  AND u.active    = true";
+                WHERE w.state";
 
             bool esOficinaProyectos = Eq(evaluador.ObraOficina, "Oficina Central")
                                       && Eq(evaluador.Area, "Proyectos");
@@ -194,7 +188,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             {
                 var todos = (await conn.QueryAsync<ResidenteEvaluableDto>(
                     selectBase + "\nORDER BY p.full_name",
-                    new { EvaluadorUserId = evaluadorUserId })).ToList();
+                    new { residentes.ObraIds, residentes.ResidenteWorkerIds })).ToList();
                 todos.ForEach(r => r.PuedeVerTodos = true);
                 return todos;
             }
@@ -211,7 +205,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
 
                 return (await conn.QueryAsync<ResidenteEvaluableDto>(
                     selectBase + "\n                  AND pr.project_id = ANY(@ProjectIds)\n                ORDER BY p.full_name",
-                    new { ProjectIds = projectIds.ToArray() })).ToList();
+                    new { ProjectIds = projectIds.ToArray(), residentes.ObraIds, residentes.ResidenteWorkerIds })).ToList();
             }
 
             // REGLA 3: Staff → residentes del mismo proyecto que el evaluador
@@ -227,7 +221,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       LIMIT 1
                   )
                 ORDER BY p.full_name",
-                new { EvaluadorUserId = evaluadorUserId })).ToList();
+                new { EvaluadorUserId = evaluadorUserId, residentes.ObraIds, residentes.ResidenteWorkerIds })).ToList();
         }
 
         private static bool Eq(string? a, string b) =>

@@ -33,4 +33,15 @@ namespace Abril_Backend.Shared.Services.Residentes.Interfaces
     /// <summary>El residente de un proyecto: su ficha, su persona, su usuario (si tiene), su nombre y
     /// su correo corporativo, que es el de los avisos.</summary>
     public record ResidenteDto(int WorkerId, int? PersonId, int? UserId, string? Nombre, string? Email);
+
+    /// <summary>Una obra del universo de obras con residente y su residente: la ficha que apunta el
+    /// proyecto, su persona y su usuario. Clase con setters y no record posicional para que EF pueda
+    /// seguir componiendo la consulta encima (Where/Select sobre sus propiedades).</summary>
+    public class ObraConResidente
+    {
+        public int ProjectId { get; set; }
+        public int WorkerId { get; set; }
+        public int PersonId { get; set; }
+        public int UserId { get; set; }
+    }
 }

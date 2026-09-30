@@ -521,6 +521,16 @@ public class AtsRepository : IAtsRepository
         var riesgoIdsQueRequierenPetar = await ctx.SsAtsRiesgo.Where(r => r.RequierePetar).Select(r => r.Id).ToListAsync();
 
         var atsIds = ats.Select(a => a.Id).ToList();
+
+        // dto.Riesgos viene vacío en el listado (ToDtoResumen, ver AtsRepository.Listar) — se
+        // consulta aparte, liviano (solo AtsId+RiesgoId), en vez de depender del include pesado.
+        var atsIdsConRiesgoPetar = (await ctx.SsAtsRiesgoDetalle
+            .Where(r => atsIds.Contains(r.AtsId) && riesgoIdsQueRequierenPetar.Contains(r.RiesgoId))
+            .Select(r => r.AtsId)
+            .Distinct()
+            .ToListAsync())
+            .ToHashSet();
+
         var petares = await ctx.SsPetar
             .Include(p => p.Tipo)
             .Where(p => atsIds.Contains(p.AtsId))
@@ -529,7 +539,7 @@ public class AtsRepository : IAtsRepository
 
         foreach (var dto in ats)
         {
-            dto.RequierePetar = dto.Riesgos.Any(r => riesgoIdsQueRequierenPetar.Contains(r.RiesgoId));
+            dto.RequierePetar = atsIdsConRiesgoPetar.Contains(dto.Id);
             var (esResidente, esSsoma) = permisosPorAtsId.GetValueOrDefault(dto.Id);
             dto.Petares = petaresPorAts[dto.Id]
                 .Select(p => new AtsPetarResumenDto
@@ -889,6 +899,11 @@ public class AtsRepository : IAtsRepository
         return await ctx.SsAts.AnyAsync(a => a.SelfieHash == selfieHash);
     }
 
+    /// <summary>Listado paginado — a propósito NO trae Pasos/Epps/Herramientas/RiesgosDetalle
+    /// (eran includes pesados repetidos en cada una de las 20 filas de la página, aun cuando la
+    /// fila no está expandida): eso se pide aparte por ATS individual (GetPorId) recién cuando el
+    /// usuario hace clic en "Ver detalle" o abre el modal de firma. Con cientos de ATS/día y ~100
+    /// usuarios en simultáneo, ese detalle de más era el grueso de la lentitud del listado.</summary>
     public async Task<AtsListResponseDto> Listar(AtsFiltroDto filtro)
     {
         using var ctx = _factory.CreateDbContext();
@@ -897,10 +912,6 @@ public class AtsRepository : IAtsRepository
             .Include(a => a.Worker).ThenInclude(w => w!.Person)
             .Include(a => a.Proyecto)
             .Include(a => a.Puesto)
-            .Include(a => a.Pasos)
-            .Include(a => a.Epps)
-            .Include(a => a.Herramientas)
-            .Include(a => a.RiesgosDetalle)
             .AsQueryable();
 
         if (filtro.ProyectoId.HasValue) query = query.Where(a => a.ProyectoId == filtro.ProyectoId);
@@ -917,13 +928,54 @@ public class AtsRepository : IAtsRepository
 
         return new AtsListResponseDto
         {
-            Data = data.Select(ToDto).ToList(),
+            Data = data.Select(ToDtoResumen).ToList(),
             Page = page,
             PageSize = PageSize,
             TotalRecords = total,
             TotalPages = (int)Math.Ceiling(total / (double)PageSize),
         };
     }
+
+    /// <summary>Misma forma que ToDto pero sin Pasos/Epps/Herramientas/Riesgos (listas vacías) —
+    /// ver comentario en Listar. No requiere que esas colecciones de navegación vengan cargadas.</summary>
+    private static AtsResponseDto ToDtoResumen(SsAts ats) => new()
+    {
+        Id = ats.Id,
+        WorkerId = ats.WorkerId,
+        WorkerNombre = ats.Worker?.Person?.FullName,
+        ProyectoId = ats.ProyectoId,
+        ProyectoNombre = ats.Proyecto?.ProjectDescription,
+        PuestoId = ats.PuestoId,
+        PuestoNombre = ats.Puesto?.Nombre,
+        PlantillaId = ats.PlantillaId,
+        PlantillaNombre = ats.Plantilla?.Nombre,
+        Actividad = ats.Actividad,
+        TorreNombre = ats.TorreNombre,
+        Pisos = ats.Pisos,
+        Lugar = ats.Lugar,
+        Fecha = ats.Fecha,
+        HoraServidorFirma = ats.HoraServidorFirma,
+        Lat = ats.Lat,
+        Lng = ats.Lng,
+        PrecisionMetros = ats.PrecisionMetros,
+        SelfieUrl = ats.SelfieUrl,
+        FirmaUrl = ats.FirmaUrl,
+        Estado = ats.Estado,
+        AtsAnteriorId = ats.AtsAnteriorId,
+        PdfHash = ats.PdfHash,
+        AutorizaNombre = ats.AutorizaNombre,
+        AutorizaCargo = ats.AutorizaCargo,
+        AutorizaFirmaUrl = ats.AutorizaFirmaUrl,
+        AutorizaHoraServidor = ats.AutorizaHoraServidor,
+        SsomaNombre = ats.SsomaNombre,
+        SsomaCargo = ats.SsomaCargo,
+        SsomaFirmaUrl = ats.SsomaFirmaUrl,
+        SsomaHoraServidor = ats.SsomaHoraServidor,
+        Pasos = [],
+        Epps = [],
+        Herramientas = [],
+        Riesgos = [],
+    };
 
     // ── Administración de plantillas ────────────────────────────────────
 

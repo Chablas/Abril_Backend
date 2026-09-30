@@ -43,22 +43,38 @@ public class AtsService : IAtsService
 
     public Task<int> ResolverWorkerId(int userId) => _repository.ResolverWorkerIdAsync(userId);
 
+    /// <summary>Cada _repository.Get* abre su propio DbContext (IDbContextFactory) — antes se
+    /// esperaban una por una (9 round trips secuenciales a la BD cada vez que se abre "Nuevo
+    /// ATS"). Como no comparten contexto, es seguro dispararlas todas en paralelo con
+    /// Task.WhenAll: el tiempo total pasa a ser el de la más lenta, no la suma de las 9.</summary>
     public async Task<AtsInitDto> GetInit(int workerId)
     {
         var (puestoId, proyectoActualId) = await _repository.GetPuestoYProyectoActual(workerId);
 
+        var proyectosTask = _repository.GetProyectosActivos();
+        var pasosTask = _repository.GetPasosParaPuesto(puestoId);
+        var peligrosTask = _repository.GetPeligrosConRiesgos();
+        var eppsTask = _repository.GetEppActivos();
+        var herramientasTask = _repository.GetHerramientasActivas();
+        var plantillasTask = _repository.GetPlantillasActivas();
+        var plantillaSugeridaTask = _repository.GetPlantillaSugerida(puestoId);
+        var tieneConsentimientoTask = _repository.TieneConsentimiento(workerId);
+
+        await Task.WhenAll(proyectosTask, pasosTask, peligrosTask, eppsTask, herramientasTask,
+            plantillasTask, plantillaSugeridaTask, tieneConsentimientoTask);
+
         return new AtsInitDto
         {
-            Proyectos = await _repository.GetProyectosActivos(),
+            Proyectos = await proyectosTask,
             ProyectoActualId = proyectoActualId,
             PuestoId = puestoId,
-            Pasos = await _repository.GetPasosParaPuesto(puestoId),
-            Peligros = await _repository.GetPeligrosConRiesgos(),
-            Epps = await _repository.GetEppActivos(),
-            Herramientas = await _repository.GetHerramientasActivas(),
-            Plantillas = await _repository.GetPlantillasActivas(),
-            PlantillaSugeridaId = await _repository.GetPlantillaSugerida(puestoId),
-            TieneConsentimiento = await _repository.TieneConsentimiento(workerId),
+            Pasos = await pasosTask,
+            Peligros = await peligrosTask,
+            Epps = await eppsTask,
+            Herramientas = await herramientasTask,
+            Plantillas = await plantillasTask,
+            PlantillaSugeridaId = await plantillaSugeridaTask,
+            TieneConsentimiento = await tieneConsentimientoTask,
         };
     }
 
@@ -191,11 +207,13 @@ public class AtsService : IAtsService
     /// Ingeniero/Arquitecto de Producción vinculado actualmente a ese proyecto (por puesto, no
     /// hay campo dedicado) O el Jefe/Administrador SSOMA. Visto Bueno SSOMA = el correo de
     /// Coordinador SSOMA configurado en el proyecto O cualquier prevencionista de Abril (puesto
-    /// "Prevencionista", cualquier proyecto) O el Jefe/Administrador SSOMA. En ambos casos, nunca
-    /// para el propio ATS — nadie se autovalida, ni siquiera el admin.</summary>
+    /// "Prevencionista", cualquier proyecto) O el Jefe/Administrador SSOMA. Nadie se autovalida su
+    /// propio ATS — EXCEPTO el Jefe/Administrador SSOMA, que pidió acceso total sin bloqueo ni
+    /// siquiera sobre lo suyo (es la última instancia, no hay a quién más escalar).</summary>
     private async Task<(bool EsAutoriza, bool EsSsoma)> PuedeAutorizarYVistoBueno(AtsResponseDto ats, int workerId, bool esAdmin)
     {
-        if (ats.WorkerId == workerId) return (false, false);
+        if (ats.WorkerId == workerId && !esAdmin) return (false, false);
+        if (ats.WorkerId == workerId && esAdmin) return (true, true);
 
         var responsables = await _repository.GetResponsables(ats.ProyectoId);
         var callerEmail = await _repository.GetEmailCorporativoWorker(workerId);
@@ -225,16 +243,50 @@ public class AtsService : IAtsService
 
         var res = await _repository.Listar(filtro);
 
+        // El "caller" (quien pide la lista) es el mismo en las 20 filas de la página — antes se
+        // repetían GetResponsables/EsProduccionDeProyecto/EsPrevencionista/GetEmailCorporativo
+        // por CADA fila (hasta 80 queries extra por página). Lo que depende solo del caller se
+        // calcula una vez; lo que depende del proyecto se cachea por proyecto, no por fila.
+        var callerEmail = await _repository.GetEmailCorporativoWorker(workerId);
+        var esPrevencionistaCaller = await _repository.EsPrevencionistaAbril(workerId);
+        var responsablesPorProyecto = new Dictionary<int, AtsResponsablesDto>();
+        var esProduccionPorProyecto = new Dictionary<int, bool>();
+
         var permisosPorAtsId = new Dictionary<int, (bool, bool)>();
         foreach (var ats in res.Data)
         {
-            var (esAutoriza, esSsoma) = await PuedeAutorizarYVistoBueno(ats, workerId, esAdmin);
+            if (!responsablesPorProyecto.TryGetValue(ats.ProyectoId, out var responsables))
+            {
+                responsables = await _repository.GetResponsables(ats.ProyectoId);
+                responsablesPorProyecto[ats.ProyectoId] = responsables;
+            }
+            if (!esProduccionPorProyecto.TryGetValue(ats.ProyectoId, out var esProduccion))
+            {
+                esProduccion = await _repository.EsProduccionDeProyecto(workerId, ats.ProyectoId);
+                esProduccionPorProyecto[ats.ProyectoId] = esProduccion;
+            }
+
+            var (esAutoriza, esSsoma) = CalcularPermisos(ats, workerId, esAdmin, responsables, callerEmail, esProduccion, esPrevencionistaCaller);
             MarcarPermisos(ats, esAutoriza, esSsoma);
             permisosPorAtsId[ats.Id] = (esAutoriza, esSsoma);
         }
 
         await _repository.CompletarInfoPetar(res.Data, permisosPorAtsId);
         return res;
+    }
+
+    private static (bool EsAutoriza, bool EsSsoma) CalcularPermisos(
+        AtsResponseDto ats, int workerId, bool esAdmin, AtsResponsablesDto responsables,
+        string? callerEmail, bool esProduccion, bool esPrevencionistaCaller)
+    {
+        if (ats.WorkerId == workerId) return esAdmin ? (true, true) : (false, false);
+
+        var esResidente = responsables.ResidenteWorkerId == workerId;
+        var esProduccionEfectivo = !esResidente && esProduccion;
+        var esCoordSsoma = callerEmail != null && responsables.SsomaEmails.Contains(callerEmail, StringComparer.OrdinalIgnoreCase);
+        var esPrevencionista = !esCoordSsoma && esPrevencionistaCaller;
+
+        return (esResidente || esProduccionEfectivo || esAdmin, esCoordSsoma || esPrevencionista || esAdmin);
     }
 
     private static void MarcarPermisos(AtsResponseDto ats, bool esAutoriza, bool esSsoma)
@@ -338,8 +390,9 @@ public class AtsService : IAtsService
         var entidad = await _repository.GetEntidad(id) ?? throw new AbrilException("ATS no encontrado.", 404);
         var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
 
-        // Nadie se autovalida su propio ATS — ni siquiera el admin.
-        if (entidad.WorkerId == workerId)
+        // Nadie se autovalida su propio ATS — excepto el Jefe/Administrador SSOMA (ver
+        // PuedeAutorizarYVistoBueno): pidió acceso total, incluido sobre lo suyo.
+        if (entidad.WorkerId == workerId && !esAdmin)
             throw new AbrilException("No puedes dar visto bueno a tu propio ATS.", 403);
 
         // El Jefe/Administrador SSOMA puede firmar cualquiera de los dos vistos en cualquier

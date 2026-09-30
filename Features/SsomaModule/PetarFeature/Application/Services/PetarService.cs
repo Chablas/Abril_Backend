@@ -50,6 +50,8 @@ public class PetarService : IPetarService
 
     public Task<int> ResolverWorkerId(int userId) => _atsRepository.ResolverWorkerIdAsync(userId);
 
+    public Task<List<PetarTipoDto>> GetTiposCatalogo() => _repository.GetTiposConItems();
+
     public async Task<PetarInitDto> GetInit(int atsId)
     {
         var (_, lugar, actividad, estadoAts) = await _repository.GetDatosAts(atsId);
@@ -400,5 +402,152 @@ public class PetarService : IPetarService
             return await http.GetByteArrayAsync(url);
         }
         catch { return null; }
+    }
+
+    // ── PETAR Grupal ──────────────────────────────────────────────────────
+
+    /// <summary>Cualquier trabajador puede crear el checklist grupal (mismo criterio que el ATS
+    /// grupal) — nace ligado a un ATS grupal ya existente, del que hereda el proyecto.</summary>
+    public async Task<PetarGrupoCrearResponseDto> CrearGrupo(int workerId, PetarGrupoCrearRequestDto dto)
+    {
+        if (dto.TipoId <= 0)
+            throw new AbrilException("Selecciona el tipo de trabajo de alto riesgo.", 400);
+        if (string.IsNullOrWhiteSpace(dto.DescripcionTrabajo))
+            throw new AbrilException("Describe el trabajo a realizar.", 400);
+        if (dto.Respuestas.Count == 0)
+            throw new AbrilException("Completa el checklist de verificación.", 400);
+        if (dto.Respuestas.Any(r => r.Respuesta == "NO"))
+            throw new AbrilException("Hay ítems del checklist marcados como NO cumplidos — el trabajo no puede iniciar hasta corregirlos.", 400);
+
+        var atsGrupo = await _atsRepository.GetGrupoEntidad(dto.AtsGrupoId)
+            ?? throw new AbrilException("El ATS grupal de origen no existe.", 404);
+
+        var grupo = await _repository.CrearGrupo(workerId, atsGrupo.ProyectoId, dto);
+        return new PetarGrupoCrearResponseDto { Id = grupo.Id };
+    }
+
+    /// <summary>Lo que ve el trabajador en la misma página pública del QR del ATS grupal, para
+    /// elegir cuáles PETAR le aplican a él (no todos en la cuadrilla hacen la misma tarea de alto
+    /// riesgo).</summary>
+    public async Task<List<PetarGrupoResumenPublicoDto>> GetGruposPublicoPorAtsToken(Guid atsToken)
+    {
+        var atsGrupo = await _atsRepository.GetGrupoPorToken(atsToken);
+        if (atsGrupo is null) return [];
+        return await _repository.GetGruposActivosPorAtsGrupo(atsGrupo.Id);
+    }
+
+    /// <summary>A diferencia de CerrarGrupo (que sí exige ser el autor o admin), VER el estado no
+    /// se restringe al autor — el Residente/SSOMA que debe firmar normalmente NO es quien creó el
+    /// ATS grupal, y necesita poder abrir este mismo panel para hacerlo. El control real de quién
+    /// puede firmar sigue viviendo en FirmarVistoGrupoComun, no acá.</summary>
+    public async Task<List<PetarGrupoEstadoDto>> GetEstadosPorAtsGrupo(int atsGrupoId, int workerId, bool esAdmin)
+    {
+        var lista = await _repository.GetEstadosPorAtsGrupo(atsGrupoId);
+        foreach (var dto in lista)
+            await MarcarPermisosGrupo(dto, workerId, esAdmin);
+        return lista;
+    }
+
+    public async Task<PetarGrupoEstadoDto> GetEstadoGrupo(int id, int workerId, bool esAdmin)
+    {
+        var dto = await _repository.GetEstadoGrupo(id) ?? throw new AbrilException("PETAR grupal no encontrado.", 404);
+        await MarcarPermisosGrupo(dto, workerId, esAdmin);
+        return dto;
+    }
+
+    /// <summary>Mismo criterio de permisos que FirmarVistoGrupoComun (Residente=Supervisor,
+    /// Coordinador SSOMA=Ssoma) — acá solo decide qué botón mostrar, la firma real se valida de
+    /// nuevo server-side al firmar.</summary>
+    private async Task MarcarPermisosGrupo(PetarGrupoEstadoDto dto, int workerId, bool esAdmin)
+    {
+        if (dto.Estado != "Activo") return;
+        var responsables = await _atsRepository.GetResponsables(dto.ProyectoId);
+        var esResidente = esAdmin || responsables.ResidenteWorkerId == workerId;
+        var email = await _atsRepository.GetEmailCorporativoWorker(workerId);
+        var esSsoma = esAdmin || (email != null && responsables.SsomaEmails.Contains(email, StringComparer.OrdinalIgnoreCase));
+        dto.PuedeFirmarSupervisor = esResidente && !dto.SupervisorFirmado;
+        dto.PuedeFirmarSsoma = esSsoma && !dto.SsomaFirmado;
+    }
+
+    public async Task CerrarGrupo(int id, int workerId, bool esAdmin)
+    {
+        if (!esAdmin && !await _repository.EsAutorDeGrupo(id, workerId))
+            throw new AbrilException("Este PETAR grupal no te pertenece.", 403);
+        await _repository.CerrarGrupo(id);
+    }
+
+    public Task FirmarSupervisorGrupo(int id, int callerUserId, bool esAdmin, PetarFirmarVistoRequestDto body)
+        => FirmarVistoGrupoComun(id, callerUserId, esAdmin, body, "Supervisor");
+
+    public Task FirmarSsomaGrupo(int id, int callerUserId, bool esAdmin, PetarFirmarVistoRequestDto body)
+        => FirmarVistoGrupoComun(id, callerUserId, esAdmin, body, "Ssoma");
+
+    private async Task FirmarVistoGrupoComun(int id, int callerUserId, bool esAdmin, PetarFirmarVistoRequestDto body, string rol)
+    {
+        if (string.IsNullOrWhiteSpace(body.FirmaBase64))
+            throw new AbrilException("La firma es obligatoria.", 400);
+
+        var grupo = await _repository.GetGrupoEntidad(id) ?? throw new AbrilException("PETAR grupal no encontrado.", 404);
+        var workerId = await _atsRepository.ResolverWorkerIdAsync(callerUserId);
+
+        if (!esAdmin)
+        {
+            var responsables = await _atsRepository.GetResponsables(grupo.ProyectoId);
+            if (rol == "Supervisor")
+            {
+                if (responsables.ResidenteWorkerId != workerId)
+                    throw new AbrilException("Solo el Residente/Supervisor asignado a este proyecto puede firmar este visto.", 403);
+            }
+            else
+            {
+                var email = await _atsRepository.GetEmailCorporativoWorker(workerId);
+                if (email == null || !responsables.SsomaEmails.Contains(email, StringComparer.OrdinalIgnoreCase))
+                    throw new AbrilException("Solo el Coordinador SSOMA de este proyecto puede dar el Visto Bueno.", 403);
+            }
+        }
+
+        var (nombre, cargo) = await _atsRepository.GetNombreYCargo(workerId);
+
+        var firmaBytes = FirmaImagenHelper.DecodePng(body.FirmaBase64);
+        var firmaHash = Convert.ToHexString(SHA256.HashData(firmaBytes));
+        var firmaUrl = await SubirBytes(rol.ToLower() + "-grupo", workerId, firmaBytes, "png");
+
+        await _repository.FirmarVistoGrupo(id, rol, workerId, nombre, cargo, firmaUrl, firmaHash, DateTime.UtcNow);
+    }
+
+    /// <summary>Adhesión liviana a un PETAR grupal — mismo QR/token que el ATS grupal del que
+    /// nace. Reusa Firmar() (que ya existe para el flujo individual) para no duplicar la lógica
+    /// de selfie/hash/auditoría.</summary>
+    public async Task<int> UnirseAGrupo(int petarGrupoId, PetarGrupoUnirseRequestDto body, string? ipOrigen, string? userAgent)
+    {
+        if (!Guid.TryParse(body.AtsToken, out var atsToken))
+            throw new AbrilException("Enlace inválido.", 400);
+
+        var atsGrupo = await _atsRepository.GetGrupoPorToken(atsToken) ?? throw new AbrilException("Enlace inválido.", 404);
+        var petarGrupo = await _repository.GetGrupoEntidad(petarGrupoId) ?? throw new AbrilException("Este PETAR ya no está disponible.", 404);
+        if (petarGrupo.AtsGrupoId != atsGrupo.Id)
+            throw new AbrilException("Este PETAR no corresponde a este ATS.", 400);
+        if (petarGrupo.Estado != "Activo")
+            throw new AbrilException("Este PETAR grupal ya fue cerrado.", 409);
+
+        var atsPropio = await _atsRepository.GetEntidad(body.AtsIdPropio)
+            ?? throw new AbrilException("Primero debes firmar tu ATS antes de firmar el PETAR.", 400);
+        if (atsPropio.WorkerId != body.WorkerId || atsPropio.AtsGrupoId != atsGrupo.Id)
+            throw new AbrilException("Este ATS no corresponde a este trabajador/grupo.", 403);
+
+        var petarId = await _repository.CrearDesdeGrupo(body.WorkerId, body.AtsIdPropio, petarGrupo);
+
+        var firmarDto = new PetarFirmarRequestDto
+        {
+            SelfieBase64 = body.SelfieBase64,
+            FirmaBase64 = body.FirmaBase64,
+            HoraDispositivo = body.HoraDispositivo,
+            Lat = body.Lat,
+            Lng = body.Lng,
+            PrecisionMetros = body.PrecisionMetros,
+        };
+        await Firmar(petarId, body.WorkerId, firmarDto, ipOrigen, userAgent);
+
+        return petarId;
     }
 }

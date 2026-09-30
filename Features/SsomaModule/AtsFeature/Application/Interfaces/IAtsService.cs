@@ -55,4 +55,12 @@ public interface IAtsService
     Task<(string? FirmaDigitalUrl, string? Nombre, string? Dni)> GetFirmaDigitalAutorizacion(int workerId);
     Task<byte[]?> GetFirmaDigitalAutorizacionImagen(int workerId);
     Task<byte[]> GenerarPlantillaAutorizacionPdf(int workerId);
+
+    // ── ATS Grupal ────────────────────────────────────────────────────────
+    Task<AtsGrupoCrearResponseDto> CrearGrupo(int workerId, AtsGuardarRequestDto dto);
+    Task<AtsGrupoEstadoDto> GetEstadoGrupo(int id, int workerId, bool esAdmin);
+    Task CerrarGrupo(int id, int workerId, bool esAdmin);
+    Task<AtsGrupoResumenPublicoDto> GetResumenPublico(Guid token);
+    Task<List<AtsGrupoWorkerOpcionDto>> GetWorkersParaAdhesion(Guid token);
+    Task<int> UnirseAGrupo(Guid token, AtsGrupoUnirseRequestDto body, string? ipOrigen, string? userAgent);
 }

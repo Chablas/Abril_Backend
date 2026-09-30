@@ -101,4 +101,19 @@ public interface IAtsRepository
     Task<int> CrearControl(int riesgoId, string texto, string tipo);
     Task EditarControl(int controlId, string texto, string tipo);
     Task EliminarControl(int controlId);
+
+    // ── ATS Grupal ────────────────────────────────────────────────────────
+    Task<SsAtsGrupo> CrearGrupo(int creadoPorWorkerId, AtsGuardarRequestDto dto);
+    Task<SsAtsGrupo?> GetGrupoPorToken(Guid token);
+    Task<SsAtsGrupo?> GetGrupoEntidad(int id);
+    Task<AtsGrupoEstadoDto?> GetEstadoGrupo(int id);
+    Task<bool> EsAutorDeGrupo(int atsGrupoId, int workerId);
+    Task CerrarGrupo(int atsGrupoId);
+    Task<List<AtsGrupoWorkerOpcionDto>> GetWorkersParaAdhesion(int proyectoId);
+    Task<bool> DniCoincide(int workerId, string ultimosDigitos);
+
+    /// <summary>Crea el ATS individual de este trabajador COPIANDO el contenido ya snapshoteado
+    /// del grupo (no vuelve a resolver el catálogo) — deja Estado="Borrador", listo para que el
+    /// servicio llame a Firmar() inmediatamente después, igual que el flujo individual normal.</summary>
+    Task<int> CrearDesdeGrupo(int workerId, SsAtsGrupo grupo);
 }

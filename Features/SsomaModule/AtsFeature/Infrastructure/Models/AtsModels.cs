@@ -306,6 +306,12 @@ public class SsAts
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Presente cuando este ATS nació de "unirse" a un ATS grupal (QR) en vez del wizard
+    /// individual completo — su contenido (Pasos/Epps/Herramientas/RiesgosDetalle de abajo) es una
+    /// COPIA tomada del grupo al momento de adherirse, no una referencia viva: si el grupo se
+    /// edita después, este ATS ya firmado no cambia (misma regla de inmutabilidad que siempre).</summary>
+    public int? AtsGrupoId { get; set; }
+
     public Worker? Worker { get; set; }
     public Worker? AutorizaWorker { get; set; }
     public Worker? SsomaWorker { get; set; }
@@ -313,11 +319,112 @@ public class SsAts
     public Puesto? Puesto { get; set; }
     public SsAtsPlantilla? Plantilla { get; set; }
     public SsAts? AtsAnterior { get; set; }
+    public SsAtsGrupo? AtsGrupo { get; set; }
 
     public ICollection<SsAtsPasoSeleccionado> Pasos { get; set; } = [];
     public ICollection<SsAtsEppSeleccionado> Epps { get; set; } = [];
     public ICollection<SsAtsHerramientaSeleccionada> Herramientas { get; set; } = [];
     public ICollection<SsAtsRiesgoDetalle> RiesgosDetalle { get; set; } = [];
+}
+
+/// <summary>
+/// ATS GRUPAL: el contenido (actividad, lugar, pasos, EPP, herramientas, riesgos+valoración) se
+/// llena UNA sola vez para toda la cuadrilla — cualquier trabajador puede crearlo (decisión de
+/// Samuel 2026-09-30: en la práctica cualquiera está en capacidad de hacerlo). Cada integrante de
+/// la cuadrilla no llena nada de esto: solo escanea el QR (<see cref="QrToken"/>) y hace su propia
+/// adhesión liviana (DNI corto + selfie + geolocalización + firma), que crea SU PROPIA fila en
+/// <see cref="SsAts"/> (con <see cref="SsAts.AtsGrupoId"/> apuntando acá) copiando este contenido —
+/// así el resto del sistema (PDF, permisos, listado, PETAR individual) no se entera de la
+/// diferencia, sigue viendo un SsAts normal por persona.
+/// </summary>
+public class SsAtsGrupo
+{
+    public int Id { get; set; }
+    public int CreadoPorWorkerId { get; set; }
+    public int ProyectoId { get; set; }
+    public int? PlantillaId { get; set; }
+
+    public string Actividad { get; set; } = string.Empty;
+    public string? TorreNombre { get; set; }
+    public string? Pisos { get; set; }
+    public string? Lugar { get; set; }
+
+    public DateOnly Fecha { get; set; }
+
+    /// <summary>Token único embebido en el QR/link de adhesión — no requiere login, es el único
+    /// "candado" de acceso a la página de firma liviana. Acotado a este grupo y expira solo.</summary>
+    public Guid QrToken { get; set; } = Guid.NewGuid();
+    public DateTime QrExpiraEn { get; set; }
+
+    /// <summary>"Activo" acepta nuevas adhesiones; "Cerrado" (el autor lo cierra manualmente, o
+    /// expiró el QR) deja de aceptarlas — los ATS ya adheridos no se ven afectados.</summary>
+    public string Estado { get; set; } = "Activo";
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    public Worker? CreadoPorWorker { get; set; }
+    public Project? Proyecto { get; set; }
+    public SsAtsPlantilla? Plantilla { get; set; }
+
+    public ICollection<SsAtsGrupoPasoSeleccionado> Pasos { get; set; } = [];
+    public ICollection<SsAtsGrupoEppSeleccionado> Epps { get; set; } = [];
+    public ICollection<SsAtsGrupoHerramientaSeleccionada> Herramientas { get; set; } = [];
+    public ICollection<SsAtsGrupoRiesgoDetalle> RiesgosDetalle { get; set; } = [];
+    public ICollection<SsAts> Adhesiones { get; set; } = [];
+}
+
+/// <summary>Mismo shape que <see cref="SsAtsPasoSeleccionado"/>, a nivel de grupo.</summary>
+public class SsAtsGrupoPasoSeleccionado
+{
+    public int Id { get; set; }
+    public int AtsGrupoId { get; set; }
+    public int? PasoId { get; set; }
+    public string CategoriaNombre { get; set; } = string.Empty;
+    public string Texto { get; set; } = string.Empty;
+    public bool Aplica { get; set; }
+    public short Orden { get; set; }
+
+    public SsAtsGrupo? AtsGrupo { get; set; }
+}
+
+/// <summary>Mismo shape que <see cref="SsAtsEppSeleccionado"/>, a nivel de grupo.</summary>
+public class SsAtsGrupoEppSeleccionado
+{
+    public int Id { get; set; }
+    public int AtsGrupoId { get; set; }
+    public int EppId { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+
+    public SsAtsGrupo? AtsGrupo { get; set; }
+}
+
+/// <summary>Mismo shape que <see cref="SsAtsHerramientaSeleccionada"/>, a nivel de grupo.</summary>
+public class SsAtsGrupoHerramientaSeleccionada
+{
+    public int Id { get; set; }
+    public int AtsGrupoId { get; set; }
+    public int? HerramientaId { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+
+    public SsAtsGrupo? AtsGrupo { get; set; }
+}
+
+/// <summary>Mismo shape que <see cref="SsAtsRiesgoDetalle"/>, a nivel de grupo.</summary>
+public class SsAtsGrupoRiesgoDetalle
+{
+    public int Id { get; set; }
+    public int AtsGrupoId { get; set; }
+    public int PeligroId { get; set; }
+    public int RiesgoId { get; set; }
+    public string PeligroNombre { get; set; } = string.Empty;
+    public string RiesgoNombre { get; set; } = string.Empty;
+    public string RiesgoBase { get; set; } = string.Empty;
+    public string Controles { get; set; } = string.Empty;
+    public string RiesgoResidual { get; set; } = string.Empty;
+    public short Orden { get; set; }
+
+    public SsAtsGrupo? AtsGrupo { get; set; }
 }
 
 /// <summary>

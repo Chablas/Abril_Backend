@@ -196,12 +196,36 @@ public class PetarRepository : IPetarRepository
             .Include(p => p.Tipo)
             .Include(p => p.Respuestas)
             .Include(p => p.IzajeGrua)
+            .Include(p => p.PetarGrupo)
             .FirstOrDefaultAsync(p => p.Id == id);
 
         return petar == null ? null : ToDto(petar);
     }
 
-    private static PetarResponseDto ToDto(SsPetar p) => new()
+    /// <summary>Cuando este PETAR nació de un PETAR grupal, Supervisor/SSOMA no viven en la fila
+    /// individual (serían un solo "Borrador" nunca alcanzando "Firmado" per-persona) sino en
+    /// <see cref="SsPetar.PetarGrupo"/> — se rellenan acá para que el resto del sistema (permisos,
+    /// PDF) siga leyendo los mismos campos de siempre sin enterarse de la diferencia.</summary>
+    private static PetarResponseDto ToDto(SsPetar p)
+    {
+        var dto = ToDtoBase(p);
+        if (p.PetarGrupoId.HasValue && p.PetarGrupo != null)
+        {
+            dto.SupervisorNombre = p.PetarGrupo.SupervisorNombre;
+            dto.SupervisorCargo = p.PetarGrupo.SupervisorCargo;
+            dto.SupervisorFirmaUrl = p.PetarGrupo.SupervisorFirmaUrl;
+            dto.SupervisorHoraServidor = p.PetarGrupo.SupervisorHoraServidor;
+            dto.SsomaNombre = p.PetarGrupo.SsomaNombre;
+            dto.SsomaCargo = p.PetarGrupo.SsomaCargo;
+            dto.SsomaFirmaUrl = p.PetarGrupo.SsomaFirmaUrl;
+            dto.SsomaHoraServidor = p.PetarGrupo.SsomaHoraServidor;
+            if (dto.SupervisorFirmaUrl != null && dto.SsomaFirmaUrl != null && dto.Estado == "Borrador")
+                dto.Estado = "Firmado";
+        }
+        return dto;
+    }
+
+    private static PetarResponseDto ToDtoBase(SsPetar p) => new()
     {
         Id = p.Id,
         AtsId = p.AtsId,
@@ -254,6 +278,7 @@ public class PetarRepository : IPetarRepository
             .Include(p => p.Proyecto)
             .Include(p => p.Tipo)
             .Include(p => p.Respuestas)
+            .Include(p => p.PetarGrupo)
             .AsQueryable();
 
         if (filtro.ProyectoId.HasValue) query = query.Where(p => p.ProyectoId == filtro.ProyectoId);
@@ -422,5 +447,228 @@ public class PetarRepository : IPetarRepository
     {
         var payload = $"{hashAnterior}|{evento}|{petarId}|{workerId}|{DateTime.UtcNow:O}|{extra}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+    }
+
+    // ── PETAR Grupal ──────────────────────────────────────────────────────
+
+    public async Task<SsPetarGrupo> CrearGrupo(int creadoPorWorkerId, int proyectoId, PetarGrupoCrearRequestDto dto)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var grupo = new SsPetarGrupo
+        {
+            AtsGrupoId = dto.AtsGrupoId,
+            TipoId = dto.TipoId,
+            ProyectoId = proyectoId,
+            CreadoPorWorkerId = creadoPorWorkerId,
+            DescripcionTrabajo = dto.DescripcionTrabajo,
+            Lugar = dto.Lugar,
+            Fecha = DateOnly.FromDateTime(DateTime.Today),
+            HoraInicio = ParseHora(dto.HoraInicio),
+            HoraFin = ParseHora(dto.HoraFin),
+            Estado = "Activo",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+
+        if (dto.Respuestas.Count > 0)
+        {
+            var itemIds = dto.Respuestas.Select(r => r.ItemId).ToList();
+            var catalogo = await ctx.SsPetarItem.Where(i => itemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id);
+
+            short orden = 0;
+            foreach (var r in dto.Respuestas)
+            {
+                if (!catalogo.TryGetValue(r.ItemId, out var item)) continue;
+                grupo.Respuestas.Add(new SsPetarGrupoItemRespuesta
+                {
+                    ItemId = r.ItemId,
+                    Texto = item.Texto,
+                    Respuesta = r.Respuesta,
+                    Orden = orden++,
+                });
+            }
+        }
+
+        ctx.SsPetarGrupo.Add(grupo);
+        await ctx.SaveChangesAsync();
+        return grupo;
+    }
+
+    public async Task<List<PetarGrupoResumenPublicoDto>> GetGruposActivosPorAtsGrupo(int atsGrupoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsPetarGrupo
+            .Where(g => g.AtsGrupoId == atsGrupoId && g.Estado == "Activo")
+            .Include(g => g.Tipo)
+            .Include(g => g.Respuestas)
+            .Select(g => new PetarGrupoResumenPublicoDto
+            {
+                Id = g.Id,
+                TipoNombre = g.Tipo!.Nombre,
+                DescripcionTrabajo = g.DescripcionTrabajo,
+                Lugar = g.Lugar,
+                HoraInicio = g.HoraInicio.HasValue ? g.HoraInicio.Value.ToString("HH:mm") : null,
+                HoraFin = g.HoraFin.HasValue ? g.HoraFin.Value.ToString("HH:mm") : null,
+                Respuestas = g.Respuestas.OrderBy(r => r.Orden).Select(r => new PetarItemRespuestaResponseDto
+                {
+                    ItemId = r.ItemId,
+                    Texto = r.Texto,
+                    Respuesta = r.Respuesta,
+                }).ToList(),
+            })
+            .ToListAsync();
+    }
+
+    public async Task<List<PetarGrupoEstadoDto>> GetEstadosPorAtsGrupo(int atsGrupoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var grupos = await ctx.SsPetarGrupo
+            .Where(g => g.AtsGrupoId == atsGrupoId)
+            .Include(g => g.Tipo)
+            .OrderByDescending(g => g.CreatedAt)
+            .ToListAsync();
+
+        var ids = grupos.Select(g => g.Id).ToList();
+        var adheridos = await ctx.SsPetar
+            .Where(p => p.PetarGrupoId.HasValue && ids.Contains(p.PetarGrupoId.Value))
+            .Include(p => p.Worker).ThenInclude(w => w!.Person)
+            .ToListAsync();
+        var adheridosPorGrupo = adheridos.ToLookup(p => p.PetarGrupoId!.Value);
+
+        return grupos.Select(g => new PetarGrupoEstadoDto
+        {
+            Id = g.Id,
+            ProyectoId = g.ProyectoId,
+            TipoNombre = g.Tipo?.Nombre,
+            DescripcionTrabajo = g.DescripcionTrabajo,
+            Estado = g.Estado,
+            SupervisorFirmado = g.SupervisorFirmaUrl != null,
+            SsomaFirmado = g.SsomaFirmaUrl != null,
+            TotalAdhesiones = adheridosPorGrupo[g.Id].Count(),
+            TrabajadoresAdheridos = adheridosPorGrupo[g.Id].Select(p => p.Worker?.Person?.FullName ?? "—").ToList(),
+        }).ToList();
+    }
+
+    public async Task<SsPetarGrupo?> GetGrupoEntidad(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsPetarGrupo.Include(g => g.Respuestas).FirstOrDefaultAsync(g => g.Id == id);
+    }
+
+    public async Task<PetarGrupoEstadoDto?> GetEstadoGrupo(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var grupo = await ctx.SsPetarGrupo.Include(g => g.Tipo).FirstOrDefaultAsync(g => g.Id == id);
+        if (grupo is null) return null;
+
+        var adheridos = await ctx.SsPetar
+            .Where(p => p.PetarGrupoId == id)
+            .Include(p => p.Worker).ThenInclude(w => w!.Person)
+            .OrderBy(p => p.Worker!.Person!.FullName)
+            .ToListAsync();
+
+        return new PetarGrupoEstadoDto
+        {
+            Id = grupo.Id,
+            ProyectoId = grupo.ProyectoId,
+            TipoNombre = grupo.Tipo?.Nombre,
+            DescripcionTrabajo = grupo.DescripcionTrabajo,
+            Estado = grupo.Estado,
+            SupervisorFirmado = grupo.SupervisorFirmaUrl != null,
+            SsomaFirmado = grupo.SsomaFirmaUrl != null,
+            TotalAdhesiones = adheridos.Count,
+            TrabajadoresAdheridos = adheridos.Select(p => p.Worker?.Person?.FullName ?? "—").ToList(),
+        };
+    }
+
+    public async Task<bool> EsAutorDeGrupo(int petarGrupoId, int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsPetarGrupo.AnyAsync(g => g.Id == petarGrupoId && g.CreadoPorWorkerId == workerId);
+    }
+
+    public async Task CerrarGrupo(int petarGrupoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var grupo = await ctx.SsPetarGrupo.FirstOrDefaultAsync(g => g.Id == petarGrupoId) ?? throw new AbrilException("PETAR grupal no encontrado.", 404);
+        grupo.Estado = "Cerrado";
+        grupo.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task FirmarVistoGrupo(int petarGrupoId, string rol, int workerId, string nombre, string? cargo, string firmaUrl, string firmaHash, DateTime horaServidor)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var grupo = await ctx.SsPetarGrupo.FirstOrDefaultAsync(g => g.Id == petarGrupoId) ?? throw new AbrilException("PETAR grupal no encontrado.", 404);
+
+        if (rol == "Supervisor")
+        {
+            if (grupo.SupervisorFirmaUrl != null)
+                throw new AbrilException("Este PETAR grupal ya tiene la firma del Supervisor.", 409);
+            grupo.SupervisorWorkerId = workerId;
+            grupo.SupervisorNombre = nombre;
+            grupo.SupervisorCargo = cargo;
+            grupo.SupervisorFirmaUrl = firmaUrl;
+            grupo.SupervisorFirmaHash = firmaHash;
+            grupo.SupervisorHoraServidor = horaServidor;
+        }
+        else
+        {
+            if (grupo.SsomaFirmaUrl != null)
+                throw new AbrilException("Este PETAR grupal ya tiene el Visto Bueno de SSOMA.", 409);
+            grupo.SsomaWorkerId = workerId;
+            grupo.SsomaNombre = nombre;
+            grupo.SsomaCargo = cargo;
+            grupo.SsomaFirmaUrl = firmaUrl;
+            grupo.SsomaFirmaHash = firmaHash;
+            grupo.SsomaHoraServidor = horaServidor;
+        }
+
+        grupo.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<int> CrearDesdeGrupo(int workerId, int atsIdPropio, SsPetarGrupo grupo)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var petar = new SsPetar
+        {
+            AtsId = atsIdPropio,
+            TipoId = grupo.TipoId,
+            WorkerId = workerId,
+            ProyectoId = grupo.ProyectoId,
+            DescripcionTrabajo = grupo.DescripcionTrabajo,
+            Lugar = grupo.Lugar,
+            Fecha = grupo.Fecha,
+            HoraInicio = grupo.HoraInicio,
+            HoraFin = grupo.HoraFin,
+            Estado = "Borrador",
+            PetarGrupoId = grupo.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+
+        short orden = 0;
+        foreach (var r in grupo.Respuestas)
+        {
+            petar.Respuestas.Add(new SsPetarItemRespuesta
+            {
+                ItemId = r.ItemId,
+                Texto = r.Texto,
+                Respuesta = r.Respuesta,
+                Orden = orden++,
+            });
+        }
+
+        ctx.SsPetar.Add(petar);
+        await ctx.SaveChangesAsync();
+
+        var hash = ComputeHash(null, "CreadoDesdeGrupo", petar.Id, workerId, $"petar_grupo_id={grupo.Id}");
+        ctx.SsPetarAuditLog.Add(new SsPetarAuditLog { PetarId = petar.Id, Evento = "CreadoDesdeGrupo", Detalle = $"petar_grupo_id={grupo.Id}", HashAnterior = null, Hash = hash });
+        await ctx.SaveChangesAsync();
+
+        return petar.Id;
     }
 }

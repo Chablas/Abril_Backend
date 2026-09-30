@@ -408,3 +408,74 @@ public class AtsRiesgoControlGuardarRequestDto
     public string Texto { get; set; } = string.Empty;
     public string Tipo { get; set; } = "Administrativo";
 }
+
+// ── ATS Grupal (cuadrilla) ───────────────────────────────────────────────────
+
+/// <summary>Respuesta al crear un ATS grupal: el link/QR para que la cuadrilla se adhiera.</summary>
+public class AtsGrupoCrearResponseDto
+{
+    public int Id { get; set; }
+    public string QrToken { get; set; } = string.Empty;
+    public DateTime QrExpiraEn { get; set; }
+}
+
+/// <summary>Panel del autor: cuántos ya firmaron, para saber si falta alguien de la cuadrilla.</summary>
+public class AtsGrupoEstadoDto
+{
+    public int Id { get; set; }
+    public string Actividad { get; set; } = string.Empty;
+    public string? ProyectoNombre { get; set; }
+    public string? TorreNombre { get; set; }
+    public string? Pisos { get; set; }
+    public DateOnly Fecha { get; set; }
+    public string Estado { get; set; } = string.Empty;
+    public string QrToken { get; set; } = string.Empty;
+    public DateTime QrExpiraEn { get; set; }
+    public int TotalAdhesiones { get; set; }
+    public List<string> TrabajadoresAdheridos { get; set; } = [];
+}
+
+/// <summary>Lo que ve el trabajador al escanear el QR, ANTES de identificarse — sin login, por
+/// eso no lleva nada sensible (ver AtsVerificacionPublicaDto, mismo criterio de exposición mínima).</summary>
+public class AtsGrupoResumenPublicoDto
+{
+    public bool Valido { get; set; }
+    public string? MotivoInvalido { get; set; }
+    public string? ProyectoNombre { get; set; }
+    public string? Actividad { get; set; }
+    public string? TorreNombre { get; set; }
+    public string? Pisos { get; set; }
+    public string? Lugar { get; set; }
+    public DateOnly? Fecha { get; set; }
+    public List<string> Epps { get; set; } = [];
+    public List<string> Herramientas { get; set; } = [];
+    public List<AtsRiesgoDetalleResponseDto> Riesgos { get; set; } = [];
+}
+
+/// <summary>Trabajador seleccionable en la página de adhesión — acotado al proyecto del grupo y
+/// a quienes ya tienen la autorización de firma digital (ver ExigirAutorizacionPermiso), para no
+/// dejar elegir a alguien que de todas formas no podría firmar.</summary>
+public class AtsGrupoWorkerOpcionDto
+{
+    public int WorkerId { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+    /// <summary>Últimos 4 dígitos únicamente — nunca se manda el DNI completo a esta pantalla sin
+    /// login, solo lo necesario para que el trabajador reconozca su propio nombre en la lista.</summary>
+    public string? DniUltimos4 { get; set; }
+}
+
+/// <summary>El trabajador confirma su identidad con los últimos dígitos de SU PROPIO DNI (no es
+/// una contraseña, es fricción mínima contra "elegir cualquier nombre de la lista") y firma en el
+/// mismo paso — no hay Borrador intermedio, entra directo Firmado.</summary>
+public class AtsGrupoUnirseRequestDto
+{
+    public int WorkerId { get; set; }
+    public string DniConfirmacion { get; set; } = string.Empty;
+    public string SelfieBase64 { get; set; } = string.Empty;
+    public string FirmaBase64 { get; set; } = string.Empty;
+    public DateTime? HoraDispositivo { get; set; }
+    public decimal? Lat { get; set; }
+    public decimal? Lng { get; set; }
+    public decimal? PrecisionMetros { get; set; }
+    public bool AceptaConsentimiento { get; set; }
+}

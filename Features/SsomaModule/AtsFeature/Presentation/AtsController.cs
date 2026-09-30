@@ -550,5 +550,85 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.SubirAutorizacionPermiso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
+
+        // ── ATS Grupal ────────────────────────────────────────────────────────
+
+        /// <summary>Crea el contenido compartido de la cuadrilla (mismo wizard de datos/pasos/
+        /// peligros/valoración) y devuelve el QR token para que cada integrante se adhiera solo.</summary>
+        [HttpPost("grupo")]
+        public async Task<IActionResult> CrearGrupo([FromBody] AtsGuardarRequestDto dto)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                return Ok(await _service.CrearGrupo(workerId, dto));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.CrearGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Panel del autor: cuántos de la cuadrilla ya firmaron.</summary>
+        [HttpGet("grupo/{id:int}/estado")]
+        public async Task<IActionResult> GetEstadoGrupo(int id)
+        {
+            try
+            {
+                var userId = CurrentUserId();
+                var workerId = await _service.ResolverWorkerId(userId);
+                return Ok(await _service.GetEstadoGrupo(id, workerId, EsAdmin()));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetEstadoGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>El autor cierra el ATS grupal manualmente (deja de aceptar adhesiones nuevas) —
+        /// los ATS ya adheridos no se ven afectados.</summary>
+        [HttpPost("grupo/{id:int}/cerrar")]
+        public async Task<IActionResult> CerrarGrupo(int id)
+        {
+            try
+            {
+                var userId = CurrentUserId();
+                var workerId = await _service.ResolverWorkerId(userId);
+                await _service.CerrarGrupo(id, workerId, EsAdmin());
+                return Ok(new { message = "ATS grupal cerrado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.CerrarGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // ── Página pública de adhesión (QR) — SIN login, el token es el único candado ──────
+
+        [HttpGet("grupo/publico/{token:guid}/resumen")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetResumenPublico(Guid token)
+        {
+            try { return Ok(await _service.GetResumenPublico(token)); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetResumenPublico"); return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        [HttpGet("grupo/publico/{token:guid}/trabajadores")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetWorkersParaAdhesion(Guid token)
+        {
+            try { return Ok(await _service.GetWorkersParaAdhesion(token)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetWorkersParaAdhesion"); return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        [HttpPost("grupo/publico/{token:guid}/unirse")]
+        [AllowAnonymous]
+        public async Task<IActionResult> UnirseAGrupo(Guid token, [FromBody] AtsGrupoUnirseRequestDto body)
+        {
+            try
+            {
+                var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var userAgent = Request.Headers.UserAgent.ToString();
+                var id = await _service.UnirseAGrupo(token, body, ip, userAgent);
+                return Ok(new { id, message = "ATS firmado correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.UnirseAGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
     }
 }

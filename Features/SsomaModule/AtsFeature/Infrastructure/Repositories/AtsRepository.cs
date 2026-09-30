@@ -533,6 +533,7 @@ public class AtsRepository : IAtsRepository
 
         var petares = await ctx.SsPetar
             .Include(p => p.Tipo)
+            .Include(p => p.PetarGrupo)
             .Where(p => atsIds.Contains(p.AtsId))
             .ToListAsync();
         var petaresPorAts = petares.ToLookup(p => p.AtsId);
@@ -542,16 +543,25 @@ public class AtsRepository : IAtsRepository
             dto.RequierePetar = atsIdsConRiesgoPetar.Contains(dto.Id);
             var (esResidente, esSsoma) = permisosPorAtsId.GetValueOrDefault(dto.Id);
             dto.Petares = petaresPorAts[dto.Id]
-                .Select(p => new AtsPetarResumenDto
+                .Select(p =>
                 {
-                    Id = p.Id,
-                    TipoNombre = p.Tipo?.Nombre,
-                    Estado = p.Estado,
-                    TieneFirmaEjecutante = p.FirmaUrl != null,
-                    SupervisorFirmado = p.SupervisorFirmaUrl != null,
-                    SsomaFirmado = p.SsomaFirmaUrl != null,
-                    PuedeFirmarSupervisor = esResidente && p.FirmaUrl != null && p.SupervisorFirmaUrl == null && p.Estado == "Borrador",
-                    PuedeFirmarSsoma = esSsoma && p.FirmaUrl != null && p.SsomaFirmaUrl == null && p.Estado == "Borrador",
+                    // Un PETAR que nació de un PETAR grupal NO se firma desde acá — Supervisor/
+                    // SSOMA firman UNA vez para todo el grupo, desde el dashboard del ATS grupal
+                    // (ver PetarGrupo). Acá solo se refleja si ya quedó autorizado, nunca se
+                    // habilita el botón de firmar individual (evita firmar 20 veces lo mismo).
+                    var supervisorFirmaUrl = p.PetarGrupoId.HasValue ? p.PetarGrupo?.SupervisorFirmaUrl : p.SupervisorFirmaUrl;
+                    var ssomaFirmaUrl = p.PetarGrupoId.HasValue ? p.PetarGrupo?.SsomaFirmaUrl : p.SsomaFirmaUrl;
+                    return new AtsPetarResumenDto
+                    {
+                        Id = p.Id,
+                        TipoNombre = p.Tipo?.Nombre,
+                        Estado = p.Estado,
+                        TieneFirmaEjecutante = p.FirmaUrl != null,
+                        SupervisorFirmado = supervisorFirmaUrl != null,
+                        SsomaFirmado = ssomaFirmaUrl != null,
+                        PuedeFirmarSupervisor = !p.PetarGrupoId.HasValue && esResidente && p.FirmaUrl != null && p.SupervisorFirmaUrl == null && p.Estado == "Borrador",
+                        PuedeFirmarSsoma = !p.PetarGrupoId.HasValue && esSsoma && p.FirmaUrl != null && p.SsomaFirmaUrl == null && p.Estado == "Borrador",
+                    };
                 })
                 .ToList();
         }
@@ -1190,5 +1200,299 @@ public class AtsRepository : IAtsRepository
     {
         var payload = $"{atsId}|{workerId}|{firmaHash}|{selfieHash}|{horaServidorFirma:O}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+    }
+
+    // ── ATS Grupal ──────────────────────────────────────────────────────────
+
+    public async Task<SsAtsGrupo> CrearGrupo(int creadoPorWorkerId, AtsGuardarRequestDto dto)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var hoy = DateOnly.FromDateTime(DateTime.Today);
+        var grupo = new SsAtsGrupo
+        {
+            CreadoPorWorkerId = creadoPorWorkerId,
+            ProyectoId = dto.ProyectoId,
+            PlantillaId = dto.PlantillaId,
+            Actividad = dto.Actividad,
+            TorreNombre = dto.TorreNombre,
+            Pisos = dto.Pisos,
+            Lugar = dto.Lugar,
+            Fecha = hoy,
+            QrToken = Guid.NewGuid(),
+            // Vence a medianoche del mismo día — un ATS grupal es para la jornada de hoy, no queda
+            // reutilizable después (igual criterio que el ATS individual, que es por día).
+            QrExpiraEn = hoy.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc),
+            Estado = "Activo",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+
+        if (dto.Pasos.Count > 0)
+        {
+            var pasoIds = dto.Pasos.Where(p => p.PasoId.HasValue).Select(p => p.PasoId!.Value).ToList();
+            var pasosCatalogo = await ctx.SsAtsPaso.Include(p => p.Categoria)
+                .Where(p => pasoIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
+
+            short orden = 0;
+            foreach (var p in dto.Pasos)
+            {
+                if (p.PasoId.HasValue)
+                {
+                    if (!pasosCatalogo.TryGetValue(p.PasoId.Value, out var cat)) continue;
+                    grupo.Pasos.Add(new SsAtsGrupoPasoSeleccionado
+                    {
+                        PasoId = p.PasoId,
+                        CategoriaNombre = cat.Categoria?.Nombre ?? string.Empty,
+                        Texto = cat.Texto,
+                        Aplica = p.Aplica,
+                        Orden = orden++,
+                    });
+                }
+                else if (!string.IsNullOrWhiteSpace(p.Texto))
+                {
+                    grupo.Pasos.Add(new SsAtsGrupoPasoSeleccionado
+                    {
+                        PasoId = null,
+                        CategoriaNombre = p.CategoriaNombre ?? string.Empty,
+                        Texto = p.Texto.Trim(),
+                        Aplica = p.Aplica,
+                        Orden = orden++,
+                    });
+                }
+            }
+        }
+
+        if (dto.EppIds.Count > 0)
+        {
+            var epps = await ctx.SsAtsEpp.Where(e => dto.EppIds.Contains(e.Id)).ToListAsync();
+            foreach (var e in epps)
+                grupo.Epps.Add(new SsAtsGrupoEppSeleccionado { EppId = e.Id, Nombre = e.Nombre });
+        }
+
+        if (dto.HerramientaIds.Count > 0)
+        {
+            var herramientas = await ctx.SsAtsHerramienta.Where(h => dto.HerramientaIds.Contains(h.Id)).ToListAsync();
+            foreach (var h in herramientas)
+                grupo.Herramientas.Add(new SsAtsGrupoHerramientaSeleccionada { HerramientaId = h.Id, Nombre = h.Nombre });
+        }
+
+        foreach (var nombre in dto.HerramientasPersonalizadas)
+        {
+            if (string.IsNullOrWhiteSpace(nombre)) continue;
+            grupo.Herramientas.Add(new SsAtsGrupoHerramientaSeleccionada { HerramientaId = null, Nombre = nombre.Trim() });
+        }
+
+        if (dto.Riesgos.Count > 0)
+        {
+            var riesgoIds = dto.Riesgos.Select(r => r.RiesgoId).ToList();
+            var riesgosCatalogo = await ctx.SsAtsRiesgo.Include(r => r.Peligro)
+                .Where(r => riesgoIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id);
+
+            short orden = 0;
+            foreach (var r in dto.Riesgos)
+            {
+                if (!riesgosCatalogo.TryGetValue(r.RiesgoId, out var cat)) continue;
+                grupo.RiesgosDetalle.Add(new SsAtsGrupoRiesgoDetalle
+                {
+                    PeligroId = r.PeligroId,
+                    RiesgoId = r.RiesgoId,
+                    PeligroNombre = cat.Peligro?.Nombre ?? string.Empty,
+                    RiesgoNombre = cat.Nombre,
+                    RiesgoBase = r.RiesgoBase,
+                    Controles = r.Controles,
+                    RiesgoResidual = r.RiesgoResidual,
+                    Orden = orden++,
+                });
+            }
+        }
+
+        ctx.SsAtsGrupo.Add(grupo);
+        await ctx.SaveChangesAsync();
+        return grupo;
+    }
+
+    public async Task<SsAtsGrupo?> GetGrupoPorToken(Guid token)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAtsGrupo
+            .Include(g => g.Proyecto)
+            .Include(g => g.Pasos)
+            .Include(g => g.Epps)
+            .Include(g => g.Herramientas)
+            .Include(g => g.RiesgosDetalle)
+            .FirstOrDefaultAsync(g => g.QrToken == token);
+    }
+
+    public async Task<SsAtsGrupo?> GetGrupoEntidad(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAtsGrupo
+            .Include(g => g.Pasos)
+            .Include(g => g.Epps)
+            .Include(g => g.Herramientas)
+            .Include(g => g.RiesgosDetalle)
+            .FirstOrDefaultAsync(g => g.Id == id);
+    }
+
+    public async Task<AtsGrupoEstadoDto?> GetEstadoGrupo(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var grupo = await ctx.SsAtsGrupo.Include(g => g.Proyecto).FirstOrDefaultAsync(g => g.Id == id);
+        if (grupo is null) return null;
+
+        var adheridos = await ctx.SsAts
+            .Where(a => a.AtsGrupoId == id)
+            .Include(a => a.Worker).ThenInclude(w => w!.Person)
+            .OrderBy(a => a.Worker!.Person!.FullName)
+            .ToListAsync();
+
+        return new AtsGrupoEstadoDto
+        {
+            Id = grupo.Id,
+            Actividad = grupo.Actividad,
+            ProyectoNombre = grupo.Proyecto?.ProjectDescription,
+            TorreNombre = grupo.TorreNombre,
+            Pisos = grupo.Pisos,
+            Fecha = grupo.Fecha,
+            Estado = grupo.Estado,
+            QrToken = grupo.QrToken.ToString(),
+            QrExpiraEn = grupo.QrExpiraEn,
+            TotalAdhesiones = adheridos.Count,
+            TrabajadoresAdheridos = adheridos.Select(a => a.Worker?.Person?.FullName ?? "—").ToList(),
+        };
+    }
+
+    public async Task<bool> EsAutorDeGrupo(int atsGrupoId, int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAtsGrupo.AnyAsync(g => g.Id == atsGrupoId && g.CreadoPorWorkerId == workerId);
+    }
+
+    public async Task CerrarGrupo(int atsGrupoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var grupo = await ctx.SsAtsGrupo.FirstOrDefaultAsync(g => g.Id == atsGrupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        grupo.Estado = "Cerrado";
+        grupo.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    /// <summary>Acotado al proyecto del grupo y a trabajadores Activos que ya tienen la
+    /// autorización de firma digital — no tiene sentido ofrecerle la opción a alguien que de
+    /// todas formas el backend va a rechazar al intentar firmar (ExigirAutorizacionPermiso).</summary>
+    public async Task<List<AtsGrupoWorkerOpcionDto>> GetWorkersParaAdhesion(int proyectoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var workerIdsDelProyecto = await ctx.WorkerVinculacion
+            .Where(v => v.ProyectoId == proyectoId && v.FechaFin == null)
+            .Select(v => v.WorkerId)
+            .ToListAsync();
+
+        var workers = await ctx.Worker
+            .Where(w => workerIdsDelProyecto.Contains(w.Id)
+                && w.WorkersEstadoId == Abril_Backend.Shared.Constants.WorkersEstadoIds.Activo)
+            .Include(w => w.Person)
+            .ToListAsync();
+
+        var workerIds = workers.Select(w => w.Id).ToList();
+        var autorizados = await ctx.SsAtsAutorizacionPermiso
+            .Where(a => workerIds.Contains(a.WorkerId) && a.ArchivoUrl != null)
+            .Select(a => a.WorkerId)
+            .ToHashSetAsync();
+
+        return workers
+            .Where(w => autorizados.Contains(w.Id))
+            .Select(w => new AtsGrupoWorkerOpcionDto
+            {
+                WorkerId = w.Id,
+                Nombre = w.Person?.FullName ?? string.Empty,
+                DniUltimos4 = w.Person?.DocumentIdentityCode is { Length: >= 4 } dni ? dni[^4..] : null,
+            })
+            .OrderBy(w => w.Nombre)
+            .ToList();
+    }
+
+    public async Task<bool> DniCoincide(int workerId, string ultimosDigitos)
+    {
+        if (string.IsNullOrWhiteSpace(ultimosDigitos)) return false;
+        using var ctx = _factory.CreateDbContext();
+        var worker = await ctx.Worker.Include(w => w.Person).FirstOrDefaultAsync(w => w.Id == workerId);
+        var dni = worker?.Person?.DocumentIdentityCode;
+        if (string.IsNullOrEmpty(dni) || dni.Length < ultimosDigitos.Length) return false;
+        return dni[^ultimosDigitos.Length..] == ultimosDigitos.Trim();
+    }
+
+    public async Task<int> CrearDesdeGrupo(int workerId, SsAtsGrupo grupo)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var worker = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == workerId);
+
+        var ats = new SsAts
+        {
+            WorkerId = workerId,
+            ProyectoId = grupo.ProyectoId,
+            PuestoId = worker?.PuestoId,
+            PlantillaId = grupo.PlantillaId,
+            Actividad = grupo.Actividad,
+            TorreNombre = grupo.TorreNombre,
+            Pisos = grupo.Pisos,
+            Lugar = grupo.Lugar,
+            Fecha = grupo.Fecha,
+            Estado = "Borrador",
+            AtsGrupoId = grupo.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+
+        short ordenPaso = 0;
+        foreach (var p in grupo.Pasos)
+        {
+            ats.Pasos.Add(new SsAtsPasoSeleccionado
+            {
+                PasoId = p.PasoId,
+                CategoriaNombre = p.CategoriaNombre,
+                Texto = p.Texto,
+                Aplica = p.Aplica,
+                Orden = ordenPaso++,
+            });
+        }
+        foreach (var e in grupo.Epps)
+            ats.Epps.Add(new SsAtsEppSeleccionado { EppId = e.EppId, Nombre = e.Nombre });
+        foreach (var h in grupo.Herramientas)
+            ats.Herramientas.Add(new SsAtsHerramientaSeleccionada { HerramientaId = h.HerramientaId, Nombre = h.Nombre });
+
+        short ordenRiesgo = 0;
+        foreach (var r in grupo.RiesgosDetalle)
+        {
+            ats.RiesgosDetalle.Add(new SsAtsRiesgoDetalle
+            {
+                PeligroId = r.PeligroId,
+                RiesgoId = r.RiesgoId,
+                PeligroNombre = r.PeligroNombre,
+                RiesgoNombre = r.RiesgoNombre,
+                RiesgoBase = r.RiesgoBase,
+                Controles = r.Controles,
+                RiesgoResidual = r.RiesgoResidual,
+                Orden = ordenRiesgo++,
+            });
+        }
+
+        ctx.SsAts.Add(ats);
+        await ctx.SaveChangesAsync();
+
+        var hash = ComputeHash(null, "CreadoDesdeGrupo", ats.Id, workerId, $"ats_grupo_id={grupo.Id}");
+        ctx.SsAtsAuditLog.Add(new SsAtsAuditLog
+        {
+            AtsId = ats.Id,
+            Evento = "CreadoDesdeGrupo",
+            Detalle = $"ats_grupo_id={grupo.Id}",
+            HashAnterior = null,
+            Hash = hash,
+        });
+        await ctx.SaveChangesAsync();
+
+        return ats.Id;
     }
 }

@@ -570,6 +570,114 @@ public class AtsService : IAtsService
 
     public Task EliminarControl(int controlId) => _repository.EliminarControl(controlId);
 
+    // ── ATS Grupal ──────────────────────────────────────────────────────────
+
+    /// <summary>Cualquier trabajador puede crear un ATS grupal (decisión de Samuel 2026-09-30: en
+    /// la práctica, cualquiera está en capacidad de hacerlo) — mismo gate de autorización de firma
+    /// digital que el ATS individual, porque el autor también puede adherirse a su propio grupo.</summary>
+    public async Task<AtsGrupoCrearResponseDto> CrearGrupo(int workerId, AtsGuardarRequestDto dto)
+    {
+        await ExigirAutorizacionPermiso(workerId);
+        Validar(dto);
+        var grupo = await _repository.CrearGrupo(workerId, dto);
+        return new AtsGrupoCrearResponseDto { Id = grupo.Id, QrToken = grupo.QrToken.ToString(), QrExpiraEn = grupo.QrExpiraEn };
+    }
+
+    public async Task<AtsGrupoEstadoDto> GetEstadoGrupo(int id, int workerId, bool esAdmin)
+    {
+        if (!esAdmin && !await _repository.EsAutorDeGrupo(id, workerId))
+            throw new AbrilException("Este ATS grupal no te pertenece.", 403);
+        return await _repository.GetEstadoGrupo(id) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+    }
+
+    public async Task CerrarGrupo(int id, int workerId, bool esAdmin)
+    {
+        if (!esAdmin && !await _repository.EsAutorDeGrupo(id, workerId))
+            throw new AbrilException("Este ATS grupal no te pertenece.", 403);
+        await _repository.CerrarGrupo(id);
+    }
+
+    /// <summary>Página pública que abre el QR — sin login. "Válido" exige grupo existente, Activo,
+    /// y dentro de la ventana de vigencia del token (no acotado a proyecto acá: eso ya lo filtra
+    /// el propio token, que nace ligado a un solo grupo).</summary>
+    public async Task<AtsGrupoResumenPublicoDto> GetResumenPublico(Guid token)
+    {
+        var grupo = await _repository.GetGrupoPorToken(token);
+        if (grupo is null)
+            return new AtsGrupoResumenPublicoDto { Valido = false, MotivoInvalido = "Este enlace no corresponde a ningún ATS grupal." };
+        if (grupo.Estado != "Activo")
+            return new AtsGrupoResumenPublicoDto { Valido = false, MotivoInvalido = "Este ATS grupal ya fue cerrado por quien lo creó." };
+        if (grupo.QrExpiraEn < DateTime.UtcNow)
+            return new AtsGrupoResumenPublicoDto { Valido = false, MotivoInvalido = "Este enlace venció — pide uno nuevo para el día de hoy." };
+
+        return new AtsGrupoResumenPublicoDto
+        {
+            Valido = true,
+            ProyectoNombre = grupo.Proyecto?.ProjectDescription,
+            Actividad = grupo.Actividad,
+            TorreNombre = grupo.TorreNombre,
+            Pisos = grupo.Pisos,
+            Lugar = grupo.Lugar,
+            Fecha = grupo.Fecha,
+            Epps = grupo.Epps.Select(e => e.Nombre).ToList(),
+            Herramientas = grupo.Herramientas.Select(h => h.Nombre).ToList(),
+            Riesgos = grupo.RiesgosDetalle.OrderBy(r => r.Orden).Select(r => new AtsRiesgoDetalleResponseDto
+            {
+                PeligroId = r.PeligroId,
+                RiesgoId = r.RiesgoId,
+                PeligroNombre = r.PeligroNombre,
+                RiesgoNombre = r.RiesgoNombre,
+                RiesgoBase = r.RiesgoBase,
+                Controles = r.Controles,
+                RiesgoResidual = r.RiesgoResidual,
+            }).ToList(),
+        };
+    }
+
+    public async Task<List<AtsGrupoWorkerOpcionDto>> GetWorkersParaAdhesion(Guid token)
+    {
+        var grupo = await _repository.GetGrupoPorToken(token) ?? throw new AbrilException("Enlace inválido.", 404);
+        return await _repository.GetWorkersParaAdhesion(grupo.ProyectoId);
+    }
+
+    /// <summary>Firma liviana de adhesión — sin login (el token del QR es el único candado). El
+    /// DNI corto es fricción mínima contra "elegir cualquier nombre de la lista"; la selfie+geo+
+    /// firma es la misma prueba de presencia física que el ATS individual. Reusa Firmar() tal cual
+    /// para no duplicar la lógica de consentimiento/hash/selfie-duplicada/aviso a responsables.</summary>
+    public async Task<int> UnirseAGrupo(Guid token, AtsGrupoUnirseRequestDto body, string? ipOrigen, string? userAgent)
+    {
+        var grupo = await _repository.GetGrupoPorToken(token) ?? throw new AbrilException("Enlace inválido.", 404);
+        if (grupo.Estado != "Activo")
+            throw new AbrilException("Este ATS grupal ya fue cerrado por quien lo creó.", 409);
+        if (grupo.QrExpiraEn < DateTime.UtcNow)
+            throw new AbrilException("Este enlace venció — pide uno nuevo para el día de hoy.", 409);
+
+        if (!await _repository.DniCoincide(body.WorkerId, body.DniConfirmacion))
+            throw new AbrilException("Los dígitos de DNI no coinciden con el trabajador seleccionado.", 400);
+
+        var opciones = await _repository.GetWorkersParaAdhesion(grupo.ProyectoId);
+        if (!opciones.Any(o => o.WorkerId == body.WorkerId))
+            throw new AbrilException("Este trabajador no está habilitado para firmar en este proyecto.", 403);
+
+        await ExigirAutorizacionPermiso(body.WorkerId);
+
+        var atsId = await _repository.CrearDesdeGrupo(body.WorkerId, grupo);
+
+        var firmarDto = new AtsFirmarRequestDto
+        {
+            SelfieBase64 = body.SelfieBase64,
+            FirmaBase64 = body.FirmaBase64,
+            HoraDispositivo = body.HoraDispositivo,
+            Lat = body.Lat,
+            Lng = body.Lng,
+            PrecisionMetros = body.PrecisionMetros,
+            AceptaConsentimiento = body.AceptaConsentimiento,
+        };
+        await Firmar(atsId, body.WorkerId, firmarDto, ipOrigen, userAgent);
+
+        return atsId;
+    }
+
     private async Task<(string Url, string Hash)> SubirImagenConHash(string prefijo, int workerId, string base64)
     {
         byte[] bytes;

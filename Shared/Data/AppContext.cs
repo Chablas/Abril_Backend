@@ -89,7 +89,6 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<ProjectCicloVida> ProjectCicloVida { get; set; }
         /// <summary>Bitácora de cambios del residente del proyecto (la escribe ResidenteHistorialInterceptor).</summary>
         public DbSet<ProjectResidenteHistorial> ProjectResidenteHistorial { get; set; }
-        public DbSet<ProjectResident> ProjectResident {get;set;}
         public DbSet<ResidentReportIncidence> ResidentReportIncidence {get;set;}
         public DbSet<ResidentReportIncidenceImage> ResidentReportIncidenceImage {get;set;}
         public DbSet<ResidentReportResponse> ResidentReportResponse {get;set;}

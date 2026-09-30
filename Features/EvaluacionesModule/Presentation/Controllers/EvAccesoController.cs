@@ -8,7 +8,8 @@ using System.Security.Claims;
 
 namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
 {
-    // Expone el acceso real por PUESTO a los distintos flujos de evaluaciones, para
+    // Expone el acceso real por PUESTO a los distintos flujos de evaluaciones (salvo el del
+    // residente, que sale de Configuración → Proyectos), para
     // que el frontend oculte pestañas a las que el backend igual respondería 403 (ver
     // EvJefeSsomaController/EvSupervisorContratistaController/EvGestionSsomaController/
     // EvPrevencionistaController, que ya resuelven por puesto, no por featureKey).
@@ -18,11 +19,16 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
     public class EvAccesoController : ControllerBase
     {
         private readonly IEvGestionSsomaRepository _repo;
+        private readonly IEvEvaluacionStaffRepository _staffRepo;
         private readonly ILogger<EvAccesoController> _logger;
 
-        public EvAccesoController(IEvGestionSsomaRepository repo, ILogger<EvAccesoController> logger)
+        public EvAccesoController(
+            IEvGestionSsomaRepository repo,
+            IEvEvaluacionStaffRepository staffRepo,
+            ILogger<EvAccesoController> logger)
         {
             _repo = repo;
+            _staffRepo = staffRepo;
             _logger = logger;
         }
 
@@ -44,9 +50,9 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
                     EsJefeSsoma = esJefeSsoma,
                     EsCoordinadorSsoma = categoria == CategoriaIds.CoordinadorSsoma,
                     EsPrevencionista = categoria == CategoriaIds.Prevencionista,
-                    // El Jefe SSOMA tiene el mismo acceso a "Staff 360°" que el Residente
-                    // (ver EvEvaluacionStaffRepository.EsResidenteAsync, mismo criterio).
-                    EsResidente = categoria == CategoriaIds.Residente || esJefeSsoma,
+                    // El Jefe SSOMA tiene el mismo acceso a "Staff 360°" que el Residente de una
+                    // obra (ver EvEvaluacionStaffRepository.EsResidenteAsync, mismo criterio).
+                    EsResidente = esJefeSsoma || await _staffRepo.EsResidenteDeObraAsync(userId),
                 });
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

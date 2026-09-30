@@ -1,6 +1,7 @@
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Models;
+using Abril_Backend.Shared.Services.Residentes.Interfaces;
 
 namespace Abril_Backend.Shared.Services.Residentes.Services
 {
@@ -29,6 +30,12 @@ namespace Abril_Backend.Shared.Services.Residentes.Services
         /// antigua <c>project_resident</c>, que se llenaba con SQL a mano.
         /// </summary>
         public static IQueryable<int> ObrasConResidente(this AppDbContext ctx) =>
+            ctx.ObrasConSuResidente().Select(o => o.ProjectId);
+
+        /// <summary>El mismo universo que <see cref="ObrasConResidente"/>, una fila por obra con su
+        /// residente (ficha, persona y usuario), para quien necesita saber quién es el residente de
+        /// cada obra y no solo qué obras hay (p. ej. Evaluaciones 360°).</summary>
+        public static IQueryable<ObraConResidente> ObrasConSuResidente(this AppDbContext ctx) =>
             from p in ctx.Project
             where p.Active && p.State
                && p.Tipo!.EsObra
@@ -38,7 +45,13 @@ namespace Abril_Backend.Shared.Services.Residentes.Services
             join u in ctx.User on pe.UserId equals (int?)u.UserId
             where u.State
                && ctx.UserRole.Any(ur => ur.UserId == u.UserId && ur.RoleId == RolResidenteId && ur.State)
-            select p.ProjectId;
+            select new ObraConResidente
+            {
+                ProjectId = p.ProjectId,
+                WorkerId = w.Id,
+                PersonId = pe.PersonId,
+                UserId = u.UserId,
+            };
 
         /// <summary>Las obras del residente en el módulo de Residentes (incidencias, IVTs, cuaderno de
         /// obra): las suyas, visibles y sin excluir de RESIDENTES. Es donde ve, sube y responde.</summary>

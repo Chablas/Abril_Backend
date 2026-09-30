@@ -14,7 +14,8 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Dtos
         public bool EsCoordinadorSsoma { get; set; }
         public bool EsPrevencionista { get; set; }
 
-        /// <summary>Residente por PUESTO (CategoriaIds.Residente) — evalúa 360° a su staff de proyecto.</summary>
+        /// <summary>Residente de una obra en Configuración → Proyectos, con el rol RESIDENTE (no por
+        /// puesto), o Jefe SSOMA — evalúa 360° al staff de su obra.</summary>
         public bool EsResidente { get; set; }
 
         /// <summary>Coordinador SSOMA o Prevencionista — el "equipo SSOMA" que evalúa al Jefe SSOMA.</summary>

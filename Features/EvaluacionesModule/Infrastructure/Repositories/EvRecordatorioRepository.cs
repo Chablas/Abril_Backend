@@ -93,21 +93,16 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                       SELECT 1 FROM ev_asignacion_supervisor eas
                       WHERE eas.supervisor_worker_id = w.id AND eas.activo = true
                   )
-                  {(soloSinEvaluar ? $@"AND EXISTS (
+                  {(soloSinEvaluar ? @"AND EXISTS (
                       SELECT 1
-                      FROM workers rw
-                      JOIN person rp ON rp.person_id = rw.person_id
-                      JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
-                      JOIN puesto rpu ON rpu.puesto_id = rw.puesto_id
+                      FROM unnest(@ObraIds, @ResidenteUserIds) AS r(project_id, user_id)
                       JOIN ev_asignacion_supervisor eas
-                                     ON eas.project_id           = wv_r.proyecto_id
+                                     ON eas.project_id           = r.project_id
                                     AND eas.supervisor_worker_id = w.id
                                     AND eas.activo              = true
-                      WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente} AND rw.contrata_casa = 'Casa'
-                        AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
-                        AND NOT EXISTS (
+                      WHERE NOT EXISTS (
                             SELECT 1 FROM ev_evaluacion_residente er
-                            WHERE er.evaluado_user_id  = rp.user_id
+                            WHERE er.evaluado_user_id  = r.user_id
                               AND er.evaluador_user_id = au.user_id
                               AND er.periodo_id        = @PeriodoId
                         )
@@ -131,36 +126,37 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   AND {filtroBase}
                   AND EXISTS (
                       SELECT 1
-                      FROM workers rw
-                      JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
-                      JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id  AND wv_e.fecha_fin IS NULL
-                      JOIN puesto rpu ON rpu.puesto_id = rw.puesto_id
-                      WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente} AND rw.contrata_casa = 'Casa'
-                        AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
-                        AND rw.id           != w.id
-                        AND wv_r.proyecto_id = wv_e.proyecto_id
+                      FROM unnest(@ObraIds, @ResidentePersonIds) AS r(project_id, person_id)
+                      JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id AND wv_e.fecha_fin IS NULL
+                      WHERE wv_e.proyecto_id = r.project_id
+                        AND r.person_id     <> w.person_id
                   )
-                  {(soloSinEvaluar ? $@"AND EXISTS (
+                  {(soloSinEvaluar ? @"AND EXISTS (
                       SELECT 1
-                      FROM workers rw
-                      JOIN person rp   ON rp.person_id = rw.person_id
-                      JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
-                      JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id  AND wv_e.fecha_fin IS NULL
-                      JOIN puesto rpu ON rpu.puesto_id = rw.puesto_id
-                      WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente} AND rw.contrata_casa = 'Casa'
-                        AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
-                        AND rw.id           != w.id
-                        AND wv_r.proyecto_id = wv_e.proyecto_id
+                      FROM unnest(@ObraIds, @ResidentePersonIds, @ResidenteUserIds) AS r(project_id, person_id, user_id)
+                      JOIN worker_vinculaciones wv_e ON wv_e.worker_id = w.id AND wv_e.fecha_fin IS NULL
+                      WHERE wv_e.proyecto_id = r.project_id
+                        AND r.person_id     <> w.person_id
                         AND NOT EXISTS (
                             SELECT 1 FROM ev_evaluacion_residente er
-                            WHERE er.evaluado_user_id  = rp.user_id
+                            WHERE er.evaluado_user_id  = r.user_id
                               AND er.evaluador_user_id = au.user_id
                               AND er.periodo_id        = @PeriodoId
                         )
                   )" : "")}
                 ORDER BY p.full_name";
 
-            var qParams = new { PeriodoId = periodoId };
+            // Los residentes de R2 y R3 son los mismos que muestra la lista de residentes evaluables:
+            // el residente de cada obra en Configuración → Proyectos (EvResidentesEvaluables), ya no
+            // quien tiene puesto de residente y vinculación en esa obra.
+            var residentes = await EvResidentesEvaluables.CargarAsync(ctx);
+            var qParams = new
+            {
+                PeriodoId = periodoId,
+                residentes.ObraIds,
+                residentes.ResidentePersonIds,
+                residentes.ResidenteUserIds,
+            };
             var r1 = await conn.QueryAsync<EvaluadorDto>(sqlR1, qParams);
             var r2 = await conn.QueryAsync<EvaluadorDto>(sqlR2, qParams);
             var r3 = await conn.QueryAsync<EvaluadorDto>(sqlR3, qParams);

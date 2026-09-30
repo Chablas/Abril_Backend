@@ -7,9 +7,9 @@ using System.Security.Claims;
 
 namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
 {
-    // Evaluación 360° de Staff: el Residente de cada proyecto evalúa, de forma
-    // IDENTIFICADA, a todo el staff de SU proyecto (puestos en
-    // Shared.Constants.PuestoIds.StaffEvaluablePuestoIds). A diferencia de
+    // Evaluación 360° de Staff: el Residente de cada obra (el de Configuración → Proyectos,
+    // con el rol RESIDENTE) evalúa, de forma IDENTIFICADA, a todo el staff de SU obra
+    // (puestos en Shared.Constants.PuestoIds.StaffEvaluablePuestoIds). A diferencia de
     // EvJefeSsomaController/EvGestionSsomaController, acá SÍ se sabe qué
     // Residente evaluó a qué trabajador con qué nota — no hay anonimato.
     [ApiController]
@@ -81,8 +81,9 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
                 var periodo = await _periodoRepo.GetActivoAsync()
                     ?? throw new AbrilException("No hay período de evaluación activo.", 400);
 
-                var proyectoId = await _repo.ObtenerProyectoDeResidenteAsync(userId)
-                    ?? throw new AbrilException("No se pudo determinar el proyecto del residente.", 400);
+                var proyectosDelEvaluador = await _repo.ObtenerProyectosDelEvaluadorAsync(userId);
+                if (proyectosDelEvaluador.Count == 0)
+                    throw new AbrilException("No se pudo determinar el proyecto del residente.", 400);
 
                 if (dto.Detalles.Count == 0)
                     throw new AbrilException("Debe calificar todos los criterios.", 400);
@@ -90,9 +91,9 @@ namespace Abril_Backend.Features.Evaluaciones.Presentation.Controllers
                 if (dto.Detalles.Any(d => d.Puntaje is < 1 or > 5))
                     throw new AbrilException("El puntaje debe estar entre 1 y 5.", 400);
 
-                var puestoEvaluado = await _repo.ValidarEvaluadoAsync(dto.EvaluadoWorkerId, proyectoId)
+                // La evaluación queda en la obra del evaluado, entre las del residente evaluador.
+                var proyectoId = await _repo.ValidarEvaluadoAsync(dto.EvaluadoWorkerId, proyectosDelEvaluador)
                     ?? throw new AbrilException("El trabajador indicado no es evaluable en su proyecto.", 400);
-                _ = puestoEvaluado;
 
                 var yaEvaluo = await _repo.YaEvaluoAsync(periodo.Id, userId, dto.EvaluadoWorkerId);
                 if (yaEvaluo)

@@ -4,6 +4,7 @@ using Abril_Backend.Features.Evaluaciones.Application.Interfaces;
 using Abril_Backend.Features.Evaluaciones.Infrastructure.Models;
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Services.Residentes.Services;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,11 +19,49 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             _factory = factory;
         }
 
-        // Además del Residente (dueño natural del flujo), el Jefe SSOMA (puesto_id
-        // fijo, categoría "JEFE" genérica igual que en EvJefeSsomaRepository) tiene
-        // el mismo acceso: puede ver/evaluar el staff de SU PROPIO proyecto vigente,
-        // igual que un residente vería el suyo.
+        // Evalúan al staff el Residente de cada obra (dueño natural del flujo) y el Jefe SSOMA.
+        // El residente es quien figura en Configuración → Proyectos con el rol RESIDENTE
+        // (ResidenteQueries.ObrasConSuResidente) y evalúa al staff de esas obras: ni su puesto ni
+        // su vinculación deciden. El Jefe SSOMA (puesto_id fijo, categoría "JEFE" genérica igual
+        // que en EvJefeSsomaRepository) tiene el mismo acceso sobre el staff de SU PROPIO proyecto
+        // vigente, igual que un residente sobre el de su obra.
         public async Task<bool> EsResidenteAsync(int userId)
+            => await EsResidenteDeObraAsync(userId) || await EsJefeSsomaAsync(userId);
+
+        public async Task<bool> EsResidenteDeObraAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return await ctx.ObrasConSuResidente().AnyAsync(o => o.UserId == userId);
+        }
+
+        // Obras cuyo staff evalúa el usuario: las del residente, y si no es residente de ninguna,
+        // el proyecto vigente del Jefe SSOMA. El proyecto vigente de un worker no vive en workers
+        // (no hay workers.project_id): se lee de worker_vinculaciones sin fecha_fin, el mismo
+        // criterio que usa EvGestionSsomaRepository.ObtenerProyectosDeAsync.
+        public async Task<List<int>> ObtenerProyectosDelEvaluadorAsync(int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var obras = await ctx.ObrasConSuResidente()
+                .Where(o => o.UserId == userId)
+                .Select(o => o.ProjectId)
+                .Distinct()
+                .ToListAsync();
+            if (obras.Count > 0) return obras;
+
+            await ctx.Database.OpenConnectionAsync();
+            var conn = ctx.Database.GetDbConnection();
+            return (await conn.QueryAsync<int>(
+                @"SELECT DISTINCT wv.proyecto_id
+                  FROM app_user au
+                  JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
+                  JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
+                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
+                    AND w.puesto_id = @PuestoJefeSsoma",
+                new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma })).ToList();
+        }
+
+        // Por correo y por puesto único, el mismo criterio que EvGestionSsomaRepository.EsJefeSsomaAsync.
+        private async Task<bool> EsJefeSsomaAsync(int userId)
         {
             using var ctx = _factory.CreateDbContext();
             await ctx.Database.OpenConnectionAsync();
@@ -32,57 +71,38 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                     SELECT 1
                     FROM app_user au
                     JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
-                    JOIN puesto pu ON pu.puesto_id = w.puesto_id
                     WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
-                      AND (pu.categoria_id = @CategoriaResidente OR w.puesto_id = @PuestoJefeSsoma)
+                      AND w.puesto_id = @PuestoJefeSsoma
                   )",
-                new { UserId = userId, CategoriaResidente = CategoriaIds.Residente, PuestoJefeSsoma = PuestoIds.JefeSsoma });
-        }
-
-        // El proyecto vigente de un worker no vive en workers (no hay workers.project_id):
-        // se lee de worker_vinculaciones sin fecha_fin, el mismo criterio que usa
-        // EvGestionSsomaRepository.ObtenerProyectosDeAsync.
-        public async Task<int?> ObtenerProyectoDeResidenteAsync(int userId)
-        {
-            using var ctx = _factory.CreateDbContext();
-            await ctx.Database.OpenConnectionAsync();
-            var conn = ctx.Database.GetDbConnection();
-            return await conn.QueryFirstOrDefaultAsync<int?>(
-                @"SELECT wv.proyecto_id
-                  FROM app_user au
-                  JOIN workers w ON LOWER(w.email_corporativo) = LOWER(au.email)
-                  JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
-                  WHERE au.user_id = @UserId AND w.state AND w.contrata_casa = 'Casa' AND w.workers_estado_id = 1 /* WorkersEstadoIds.Activo */
-                  LIMIT 1",
-                new { UserId = userId });
+                new { UserId = userId, PuestoJefeSsoma = PuestoIds.JefeSsoma });
         }
 
         public async Task<List<EvEvaluacionStaffPendienteDto>> GetPendientesAsync(int evaluadorUserId, int periodoId)
         {
+            var proyectoIds = await ObtenerProyectosDelEvaluadorAsync(evaluadorUserId);
+            if (proyectoIds.Count == 0) return [];
+
             using var ctx = _factory.CreateDbContext();
             await ctx.Database.OpenConnectionAsync();
             var conn = ctx.Database.GetDbConnection();
 
-            var proyectoId = await ObtenerProyectoDeResidenteAsync(evaluadorUserId);
-            if (proyectoId == null) return [];
-
             var puestoIds = PuestoIds.StaffEvaluablePuestoIds.Keys.ToArray();
 
             var staff = await conn.QueryAsync<StaffRaw>(
-                @"SELECT w.id AS WorkerId, p.full_name AS NombreCompleto, w.puesto_id AS PuestoId, pu.nombre AS PuestoNombre
+                @"SELECT DISTINCT w.id AS WorkerId, p.full_name AS NombreCompleto, w.puesto_id AS PuestoId, pu.nombre AS PuestoNombre
                   FROM workers w
                   JOIN person p ON p.person_id = w.person_id
                   JOIN puesto pu ON pu.puesto_id = w.puesto_id
                   JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   WHERE w.state AND w.workers_estado_id = @WorkersEstadoActivo
                     AND w.obra_oficina_staff_id = @ObraOficinaStaff
-                    AND wv.proyecto_id = @ProyectoId
+                    AND wv.proyecto_id = ANY(@ProyectoIds)
                     AND w.puesto_id = ANY(@PuestoIds)",
                 new
                 {
                     WorkersEstadoActivo = WorkersEstadoIds.Activo,
                     ObraOficinaStaff = ObraOficinaStaffIds.Staff,
-                    ProyectoId = proyectoId.Value,
+                    ProyectoIds = proyectoIds.ToArray(),
                     PuestoIds = puestoIds,
                 });
 
@@ -116,7 +136,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                 .ToListAsync();
         }
 
-        public async Task<int?> ValidarEvaluadoAsync(int evaluadoWorkerId, int projectId)
+        public async Task<int?> ValidarEvaluadoAsync(int evaluadoWorkerId, List<int> projectIds)
         {
             using var ctx = _factory.CreateDbContext();
             await ctx.Database.OpenConnectionAsync();
@@ -125,20 +145,21 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var puestoIds = PuestoIds.StaffEvaluablePuestoIds.Keys.ToArray();
 
             return await conn.QueryFirstOrDefaultAsync<int?>(
-                @"SELECT w.puesto_id
+                @"SELECT wv.proyecto_id
                   FROM workers w
                   JOIN worker_vinculaciones wv ON wv.worker_id = w.id AND wv.fecha_fin IS NULL
                   WHERE w.id = @WorkerId AND w.state AND w.workers_estado_id = @WorkersEstadoActivo
                     AND w.obra_oficina_staff_id = @ObraOficinaStaff
-                    AND wv.proyecto_id = @ProjectId
+                    AND wv.proyecto_id = ANY(@ProjectIds)
                     AND w.puesto_id = ANY(@PuestoIds)
+                  ORDER BY wv.fecha_inicio DESC
                   LIMIT 1",
                 new
                 {
                     WorkerId = evaluadoWorkerId,
                     WorkersEstadoActivo = WorkersEstadoIds.Activo,
                     ObraOficinaStaff = ObraOficinaStaffIds.Staff,
-                    ProjectId = projectId,
+                    ProjectIds = projectIds.ToArray(),
                     PuestoIds = puestoIds,
                 });
         }

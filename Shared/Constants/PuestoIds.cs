@@ -21,9 +21,9 @@ namespace Abril_Backend.Shared.Constants
         public const int JefeSsoma = 189;
 
         /// <summary>
-        /// Puestos de staff evaluables en la Evaluación 360° de Staff: el Residente
-        /// (categoria_id CategoriaIds.Residente) evalúa a todo el staff de SU proyecto
-        /// cuyo puesto esté en esta lista. Ids fijados por Comité/GTH — no completar
+        /// Puestos de staff evaluables en la Evaluación 360° de Staff: el Residente de la
+        /// obra (el de Configuración → Proyectos, con el rol RESIDENTE) evalúa a todo el staff
+        /// de SU obra cuyo puesto esté en esta lista. Ids fijados por Comité/GTH — no completar
         /// ni recortar sin que venga de ahí. Clave = puesto_id, valor = nombre de
         /// referencia (documentación; el nombre real y editable vive en `puesto`).
         /// </summary>

@@ -116,7 +116,7 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Presentatio
             try
             {
                 await _service.OlvideContrasena(dto);
-                return Ok(new { message = "Si el correo tiene una cuenta de Convivir Abril, te llegará un enlace para crear una nueva contraseña." });
+                return Ok(new { message = "Si el DNI tiene una cuenta de Convivir Abril, te llegará al correo registrado un enlace para crear una nueva contraseña." });
             }
             catch (AbrilException ex)
             {

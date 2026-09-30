@@ -83,6 +83,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Sexo> Sexo { get; set; }
         public DbSet<Project> Project { get; set; }
         public DbSet<ProjectTorre> ProjectTorre { get; set; }
+        /// <summary>Inmuebles de los propietarios (app Convivir Abril, módulo Propietarios): uno por fila.</summary>
+        public DbSet<Propietario> Propietario { get; set; }
         /// <summary>Catálogo de qué es cada proyecto: PROYECTO, FFT, OFICINA_CENTRAL, AREA_INTERNA o PRUEBA (ProjectTipoIds).</summary>
         public DbSet<ProjectTipo> ProjectTipo { get; set; }
         /// <summary>Catálogo del ciclo de vida del proyecto: activo, finalizado o inactivo (ProjectCicloVidaIds).</summary>
@@ -821,6 +823,14 @@ namespace Abril_Backend.Infrastructure.Data
                 .HasOne(p => p.User)
                 .WithOne(u => u.Person)
                 .HasForeignKey<Person>(p => p.UserId);
+
+            // Relaciones declaradas a propósito: sin inversa en Person/Project, la convención
+            // podría inventar una FK sombra.
+            modelBuilder.Entity<Propietario>(e =>
+            {
+                e.HasOne(x => x.Person).WithMany().HasForeignKey(x => x.PersonId);
+                e.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId);
+            });
 
             // Centro de aprendizaje: llave compuesta de la relación N:M categoría↔rol.
             modelBuilder.Entity<LearningCategoryRole>()

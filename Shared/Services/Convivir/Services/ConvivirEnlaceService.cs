@@ -12,7 +12,7 @@ namespace Abril_Backend.Shared.Services.Convivir.Services
 {
     public class ConvivirEnlaceService : IConvivirEnlaceService
     {
-        private static readonly int RolVecinoId = int.Parse(Roles.Vecino);
+        private static readonly int RolPropietarioId = int.Parse(Roles.Propietario);
 
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IUserPasswordTokenRepository _tokenRepo;
@@ -34,14 +34,14 @@ namespace Abril_Backend.Shared.Services.Convivir.Services
             _options = options.Value;
         }
 
-        public async Task<bool> EsVecinoAsync(int userId) =>
-            await GetEmailSiEsVecinoAsync(userId) != null;
+        public async Task<bool> EsPropietarioAsync(int userId) =>
+            await GetEmailSiEsPropietarioAsync(userId) != null;
 
-        public async Task<bool> EnviarEnlaceSiEsVecinoAsync(int userId, ConvivirEnlaceTipo tipo)
+        public async Task<string?> EnviarEnlaceSiEsPropietarioAsync(int userId, ConvivirEnlaceTipo tipo)
         {
-            var email = await GetEmailSiEsVecinoAsync(userId);
+            var email = await GetEmailSiEsPropietarioAsync(userId);
             if (email == null)
-                return false;
+                return null;
 
             // Un enlace vivo a la vez: el anterior deja de servir (mismo criterio que la intranet).
             await _tokenRepo.InvalidateTokensByUserAsync(userId);
@@ -68,7 +68,7 @@ namespace Abril_Backend.Shared.Services.Convivir.Services
             var (asunto, titulo, texto, boton, vigencia) = tipo == ConvivirEnlaceTipo.Invitacion
                 ? ("Tu cuenta de Convivir Abril",
                    "Bienvenido a Convivir Abril",
-                   "Se creó tu cuenta en Convivir Abril, la app donde podrás seguir el avance de tu nuevo hogar.",
+                   "Se creó tu cuenta en Convivir Abril, la app donde podrás seguir el avance de tu nuevo hogar. Ingresarás con tu DNI y la contraseña que crees con este enlace.",
                    "Crear mi contraseña",
                    VigenciaTexto(horas))
                 : ("Restablece tu contraseña de Convivir Abril",
@@ -99,15 +99,15 @@ namespace Abril_Backend.Shared.Services.Convivir.Services
                 body: body,
                 isHtml: true);
 
-            return true;
+            return email;
         }
 
         /// <summary>
-        /// Correo del usuario si tiene el rol VECINO vigente. Filtra <c>user_role.state</c> y
+        /// Correo del usuario si tiene el rol PROPIETARIO vigente. Filtra <c>user_role.state</c> y
         /// <c>role.state</c> (el login de la intranet no lo hace). No mira <c>app_user.active</c>:
         /// una cuenta creada con estado inicial INACTIVO igual recibe su invitación.
         /// </summary>
-        private async Task<string?> GetEmailSiEsVecinoAsync(int userId)
+        private async Task<string?> GetEmailSiEsPropietarioAsync(int userId)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -118,7 +118,7 @@ namespace Abril_Backend.Shared.Services.Convivir.Services
                     JOIN user_role ur ON ur.user_id = u.user_id
                     JOIN role r       ON r.role_id  = ur.role_id
                     WHERE u.user_id = {userId}
-                      AND ur.role_id = {RolVecinoId}
+                      AND ur.role_id = {RolPropietarioId}
                       AND u.state
                       AND ur.state
                       AND r.state

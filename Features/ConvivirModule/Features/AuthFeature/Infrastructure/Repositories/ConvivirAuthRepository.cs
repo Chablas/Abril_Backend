@@ -16,34 +16,43 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Infrastruct
             _factory = factory;
         }
 
-        public async Task<ConvivirCuentaDto?> GetCuentaPorEmail(string email)
+        public async Task<ConvivirCuentaDto?> GetCuentaPorDni(string dni)
         {
             using var ctx = _factory.CreateDbContext();
-            var normalizado = email.Trim().ToLower();
+            var normalizado = dni.Trim();
 
-            // En el celular el teclado suele poner la primera letra en mayúscula: se compara sin
-            // distinguir mayúsculas y se devuelve el correo tal como está guardado, que es con el
-            // que valida la contraseña el login de siempre (AuthRepository.ValidateUserAsync).
+            // person.document_identity_code es único en toda la tabla (sin filtro de state), así
+            // que el DNI lleva a una sola persona y de ahí a su usuario. Se devuelve el correo tal
+            // como está guardado: es con el que valida la contraseña el login de siempre
+            // (AuthRepository.ValidateUserAsync). No filtra active: el servicio distingue «todavía
+            // sin contraseña» de «desactivada».
             return await ctx.User
-                .Where(u => u.State && u.Active && u.Email != null && u.Email.ToLower() == normalizado)
+                .Where(u => u.State
+                         && u.Email != null
+                         && ctx.Person.Any(p => p.UserId == u.UserId
+                                             && p.State
+                                             && p.DocumentIdentityCode == normalizado))
                 .OrderBy(u => u.UserId)
                 .Select(u => new ConvivirCuentaDto
                 {
                     UserId = u.UserId,
                     Email = u.Email!,
-                    TienePassword = u.Password != null && u.Password != ""
+                    TienePassword = u.Password != null && u.Password != "",
+                    Activa = u.Active
                 })
                 .FirstOrDefaultAsync();
         }
 
-        public async Task<string?> GetNombres(int userId)
+        public async Task<(string? Nombres, string? Dni)> GetPersona(int userId)
         {
             using var ctx = _factory.CreateDbContext();
-            return await ctx.Person
-                .Where(p => p.UserId == userId)
+            var persona = await ctx.Person
+                .Where(p => p.UserId == userId && p.State)
                 .OrderByDescending(p => p.PersonId)
-                .Select(p => p.FirstNames ?? p.FullName)
+                .Select(p => new { Nombres = p.FirstNames ?? p.FullName, Dni = p.DocumentIdentityCode })
                 .FirstOrDefaultAsync();
+
+            return (persona?.Nombres, persona?.Dni);
         }
 
         public async Task<(string Token, DateTime ExpiresAt)> CrearSesion(int userId, DateTime expiresAt)

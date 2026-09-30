@@ -575,7 +575,15 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             }
 
             entity.Estado = nuevoEstado;
-            entity.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
+            // BUG REAL (encontrado 2026-09-30): esto pisaba entity.Vigencia con dto.Vigencia SIN
+            // condición — cualquier llamada a Aprobar que no trajera vigencia (ej. rechazar solo
+            // a un trabajador, o aprobar sin volver a mandarla) borraba la vigencia que la póliza
+            // ya tenía desde que se subió. Así es como pólizas ya con fecha terminaban con
+            // Vigencia null más adelante, y por qué solo pasaba "a veces" (con cualquier acción
+            // parcial posterior a la carga) y no en todas. Ahora solo se sobreescribe si el
+            // request realmente trae una fecha nueva.
+            if (dto.Vigencia.HasValue)
+                entity.Vigencia = HabilitacionDateHelper.AsUtc(dto.Vigencia);
             entity.ObsAbril = dto.ObsAbril;
             entity.UpdatedAt = DateTime.UtcNow;
 

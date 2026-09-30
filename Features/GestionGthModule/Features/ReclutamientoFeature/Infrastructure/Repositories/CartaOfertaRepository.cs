@@ -795,6 +795,13 @@ namespace Abril_Backend.Features.GestionGthModule.Features.ReclutamientoFeature.
                 .FirstOrDefaultAsync();
             if (ficha == null) return;
 
+            var dniPersona = await ctx.Person.Where(p => p.PersonId == carta.PersonId)
+                .Select(p => p.DocumentIdentityCode).FirstOrDefaultAsync();
+            if (await Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
+                    .TrabajadorRestringidoRepository.EstaRestringidoAsync(ctx, dniPersona))
+                throw new Abril_Backend.Application.Exceptions.AbrilException(
+                    "El trabajador se encuentra en la lista de restringidos y no puede ser contratado.", 400);
+
             var req = await ctx.GthRequerimiento
                 .Where(r => r.GthRequerimientoId == requerimientoId)
                 .Select(r => new { r.ProjectId, r.ContributorId })

@@ -24,8 +24,11 @@ public interface IPenalidadService
 
     Task<PenalidadCreadaDto> RegistrarAsync(PenalidadRegistrarRequest req, int userId);
 
-    Task<PenalidadDetalleDto> AprobarResidenteAsync(int id, int userId);
-    Task<PenalidadDetalleDto> RechazarResidenteAsync(int id, PenalidadRechazarRequest req, int userId);
+    /// <summary>Solo el residente de la obra: rol RESIDENTE (<paramref name="esResidente"/>) y ser
+    /// el residente del proyecto de la penalidad en Configuración → Proyectos; si no, 403.</summary>
+    Task<PenalidadDetalleDto> AprobarResidenteAsync(int id, int userId, bool esResidente);
+    /// <summary>Mismo candado que <see cref="AprobarResidenteAsync"/>.</summary>
+    Task<PenalidadDetalleDto> RechazarResidenteAsync(int id, PenalidadRechazarRequest req, int userId, bool esResidente);
 
     Task<PenalidadDetalleDto> AprobarGerenciaAsync(int id, int userId);
     Task<PenalidadDetalleDto> RechazarGerenciaAsync(int id, PenalidadRechazarRequest req, int userId);

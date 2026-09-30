@@ -25,6 +25,10 @@ namespace Abril_Backend.Shared.Services.Residentes.Interfaces
         /// <summary>El residente del proyecto, o null si no tiene o si su ficha está de baja.</summary>
         Task<ResidenteDto?> ResidenteDelProyectoAsync(int projectId);
 
+        /// <summary>true si el residente del proyecto puede actuar como tal: usuario vigente con el
+        /// rol RESIDENTE. No mira el tipo ni el ciclo de vida del proyecto.</summary>
+        Task<bool> TieneResidenteConRolAsync(int projectId);
+
         /// <summary>El universo de obras con residente (visible, tipo que es obra, ciclo ACTIVO y
         /// residente con usuario y rol RESIDENTE). Ver <c>ResidenteQueries.ObrasConResidente</c>.</summary>
         Task<List<int>> ObrasConResidenteAsync();

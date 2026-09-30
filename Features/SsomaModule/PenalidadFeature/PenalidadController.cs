@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Filters;
 
 namespace Abril_Backend.Features.Ssoma.Penalidad;
@@ -117,7 +118,7 @@ public class PenalidadController : ControllerBase
     [RequireFeature("ssoma.gestion.penalidades.aprobar-residente")]
     public async Task<IActionResult> AprobarResidente(int id)
     {
-        try { return Ok(await _service.AprobarResidenteAsync(id, GetUserId())); }
+        try { return Ok(await _service.AprobarResidenteAsync(id, GetUserId(), User.IsInRole(Roles.Residente))); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PenalidadController.AprobarResidente"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }
@@ -126,7 +127,7 @@ public class PenalidadController : ControllerBase
     [RequireFeature("ssoma.gestion.penalidades.aprobar-residente")]
     public async Task<IActionResult> RechazarResidente(int id, [FromBody] PenalidadRechazarRequest req)
     {
-        try { return Ok(await _service.RechazarResidenteAsync(id, req, GetUserId())); }
+        try { return Ok(await _service.RechazarResidenteAsync(id, req, GetUserId(), User.IsInRole(Roles.Residente))); }
         catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (Exception ex) { _logger.LogError(ex, "Error en PenalidadController.RechazarResidente"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
     }

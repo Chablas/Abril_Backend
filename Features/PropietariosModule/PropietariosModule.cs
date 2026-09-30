@@ -17,6 +17,11 @@ namespace Abril_Backend.Features.PropietariosModule
             services.AddScoped<IGestionPropietariosRepository, GestionPropietariosRepository>();
             services.AddScoped<IGestionPropietariosService, GestionPropietariosService>();
 
+            // GestionPropietariosFeature: modal «Documentos». El storage de los archivos es global
+            // (Shared/Services/Convivir) y lo registra ConvivirModule.
+            services.AddScoped<IPropietarioDocumentosRepository, PropietarioDocumentosRepository>();
+            services.AddScoped<IPropietarioDocumentosService, PropietarioDocumentosService>();
+
             return services;
         }
     }

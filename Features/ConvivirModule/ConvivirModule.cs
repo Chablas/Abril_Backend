@@ -2,6 +2,10 @@ using Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application.Int
 using Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application.Services;
 using Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.ConvivirModule.Features.DocumentosFeature.Application.Interfaces;
+using Abril_Backend.Features.ConvivirModule.Features.DocumentosFeature.Application.Services;
+using Abril_Backend.Features.ConvivirModule.Features.DocumentosFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.ConvivirModule.Features.DocumentosFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.ConvivirModule.Features.InicioFeature.Application.Interfaces;
 using Abril_Backend.Features.ConvivirModule.Features.InicioFeature.Application.Services;
 using Abril_Backend.Features.ConvivirModule.Features.MiProyectoFeature.Application.Interfaces;
@@ -32,6 +36,10 @@ namespace Abril_Backend.Features.ConvivirModule
             // Convivir por Program.cs.
             services.AddScoped<IConvivirEnlaceService, ConvivirEnlaceService>();
 
+            // Global por lo mismo: los documentos del propietario los sube el módulo Propietarios
+            // y los descarga la app.
+            services.AddScoped<IPropietarioDocumentoStorage, PropietarioDocumentoStorage>();
+
             // Shared del módulo: propiedades y avance del propietario (Inicio y Mi Proyecto)
             services.AddScoped<IConvivirPropiedadesRepository, ConvivirPropiedadesRepository>();
 
@@ -44,6 +52,10 @@ namespace Abril_Backend.Features.ConvivirModule
 
             // MiProyectoFeature
             services.AddScoped<IConvivirMiProyectoService, ConvivirMiProyectoService>();
+
+            // DocumentosFeature
+            services.AddScoped<IConvivirDocumentosRepository, ConvivirDocumentosRepository>();
+            services.AddScoped<IConvivirDocumentosService, ConvivirDocumentosService>();
 
             return services;
         }

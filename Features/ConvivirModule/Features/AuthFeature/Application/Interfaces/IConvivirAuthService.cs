@@ -10,6 +10,7 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application
         Task<ConvivirInvitacionDto> GetInvitacion(string token);
         Task<ConvivirLoginResponseDto> CrearContrasena(ConvivirCrearContrasenaDto dto);
         Task OlvideContrasena(ConvivirOlvideContrasenaDto dto);
+        Task CambiarContrasena(int userId, ConvivirCambiarContrasenaDto dto);
         string PaginaAbrirApp(string token);
     }
 }

@@ -3,6 +3,7 @@ using Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application.Dto
 using Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Infrastructure.Interfaces;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Infrastructure.Repositories
@@ -84,6 +85,44 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Infrastruct
                 .Where(s => s.Token == sessionToken && !s.Revoked)
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.Revoked, true));
         }
+
+        public async Task CambiarContrasena(int userId, string nuevaPassword, string sessionTokenQueSeQueda)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            // Mismo hash que el set-password de la intranet (UserRepository.SetPassword), que es
+            // con el que valida AuthRepository.ValidateUserAsync.
+            var hash = Hasher.HashPassword(null!, nuevaPassword);
+
+            var strategy = ctx.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await ctx.Database.BeginTransactionAsync();
+                var ahora = DateTime.UtcNow;
+
+                await ctx.User
+                    .Where(u => u.UserId == userId && u.State)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(u => u.Password, hash)
+                        .SetProperty(u => u.UpdatedDateTime, ahora)
+                        .SetProperty(u => u.UpdatedUserId, userId));
+
+                // Si la cambió porque alguien más la sabía, lo saca de los otros teléfonos (y de
+                // la intranet: es la misma cuenta). El teléfono desde el que la cambió sigue adentro.
+                await ctx.UserSession
+                    .Where(s => s.UserId == userId && !s.Revoked && s.Token != sessionTokenQueSeQueda)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.Revoked, true));
+
+                // Un enlace de «¿La olvidaste?» pendiente ya no debe poder pisar la contraseña nueva.
+                await ctx.UserPasswordToken
+                    .Where(t => t.UserId == userId && !t.Used)
+                    .ExecuteUpdateAsync(s => s.SetProperty(t => t.Used, true));
+
+                await transaction.CommitAsync();
+            });
+        }
+
+        private static readonly PasswordHasher<User> Hasher = new();
 
         private static string GenerarToken()
         {

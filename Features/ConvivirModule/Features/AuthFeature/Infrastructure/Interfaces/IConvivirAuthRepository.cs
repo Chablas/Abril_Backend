@@ -14,5 +14,12 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Infrastruct
         Task<(string Token, DateTime ExpiresAt)> CrearSesion(int userId, DateTime expiresAt);
 
         Task RevocarSesion(string sessionToken);
+
+        /// <summary>
+        /// Guarda la nueva contraseña y, en la misma transacción, revoca las demás sesiones del
+        /// usuario (menos <paramref name="sessionTokenQueSeQueda"/>) y anula los enlaces de
+        /// «crear contraseña» sin usar.
+        /// </summary>
+        Task CambiarContrasena(int userId, string nuevaPassword, string sessionTokenQueSeQueda);
     }
 }

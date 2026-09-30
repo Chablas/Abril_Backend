@@ -160,6 +160,37 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application
                 await _enlaceService.EnviarEnlaceSiEsPropietarioAsync(cuenta.UserId, ConvivirEnlaceTipo.Recuperacion);
         }
 
+        public async Task CambiarContrasena(int userId, ConvivirCambiarContrasenaDto dto)
+        {
+            if (string.IsNullOrEmpty(dto.PasswordActual))
+                throw new AbrilException("Ingresa tu contraseña actual.", 400);
+
+            if (string.IsNullOrEmpty(dto.Password) || dto.Password.Length < LargoMinimoPassword)
+                throw new AbrilException($"La contraseña nueva debe tener al menos {LargoMinimoPassword} caracteres.", 400);
+
+            if (dto.Password != dto.ConfirmPassword)
+                throw new AbrilException("Las contraseñas nuevas no coinciden.", 400);
+
+            if (dto.Password == dto.PasswordActual)
+                throw new AbrilException("La contraseña nueva tiene que ser distinta de la actual.", 400);
+
+            // La sesión que se queda tiene que ser de este usuario: si no, las cerraría todas.
+            var userIdSesion = string.IsNullOrWhiteSpace(dto.SessionToken)
+                ? null
+                : await _authRepo.GetUserIdByValidSessionAsync(dto.SessionToken);
+            if (userIdSesion != userId)
+                throw new AbrilException("Tu sesión venció. Vuelve a ingresar.", 401);
+
+            var user = await _authRepo.GetUserByIdAsync(userId)
+                ?? throw new AbrilException("Tu sesión venció. Vuelve a ingresar.", 401);
+
+            // 400 y no 401: la app renueva el JWT y reintenta ante un 401, y acá la sesión está bien.
+            if (await _authRepo.ValidateUserAsync(user.Email, dto.PasswordActual) == null)
+                throw new AbrilException("La contraseña actual no es correcta.", 400);
+
+            await _repo.CambiarContrasena(userId, dto.Password, dto.SessionToken);
+        }
+
         public string PaginaAbrirApp(string token)
         {
             var enlace = $"{_options.EnlaceApp}crear-contrasena?token={Uri.EscapeDataString(token ?? "")}";

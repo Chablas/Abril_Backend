@@ -106,8 +106,8 @@ namespace Abril_Backend.Application.Services
             if (user == null)
                 return;
 
-            // «Reenviar» sobre un vecino: el enlace es el de la app Convivir Abril, no el de la intranet.
-            if (await _convivirEnlace.EnviarEnlaceSiEsVecinoAsync(user.Value.UserId, ConvivirEnlaceTipo.Invitacion))
+            // «Reenviar» sobre un propietario: el enlace es el de la app Convivir Abril, no el de la intranet.
+            if (await _convivirEnlace.EnviarEnlaceSiEsPropietarioAsync(user.Value.UserId, ConvivirEnlaceTipo.Invitacion) != null)
                 return;
 
             await _tokenRepository.InvalidateTokensByUserAsync(user.Value.UserId);

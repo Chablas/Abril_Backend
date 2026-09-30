@@ -91,9 +91,9 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
         {
             var user = await _repo.Create(dto);
 
-            // Un vecino no entra a la intranet sino a la app Convivir Abril: su invitación lo lleva
-            // a crear la contraseña en la app.
-            if (await _convivirEnlace.EnviarEnlaceSiEsVecinoAsync(user.UserId, ConvivirEnlaceTipo.Invitacion))
+            // Un propietario no entra a la intranet sino a la app Convivir Abril: su invitación lo
+            // lleva a crear la contraseña en la app.
+            if (await _convivirEnlace.EnviarEnlaceSiEsPropietarioAsync(user.UserId, ConvivirEnlaceTipo.Invitacion) != null)
                 return;
 
             var token = GenerateToken();

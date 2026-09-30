@@ -111,11 +111,12 @@
         public const string JefeProyectos                     = "93"; // JEFE DE PROYECTOS
 
         /// <summary>
-        /// Propietario que entra a la app móvil Convivir Abril. Hoy es el ÚNICO rol que la app deja
-        /// entrar (ver ConvivirModule). No confundir con USUARIO DE VECINOS (62), que es el personal de
-        /// Abril que atiende a los vecinos de una obra desde la intranet. El ID lo fija
-        /// <c>20260929_ConvivirRolVecino.sql</c>.
+        /// Propietario de un inmueble de Abril: entra a la app móvil Convivir Abril. Hoy es el ÚNICO
+        /// rol que la app deja entrar (ver ConvivirModule). Sus inmuebles están en la tabla
+        /// <c>propietario</c> (módulo Propietarios de la intranet). No confundir con USUARIO DE
+        /// VECINOS (62), que es el personal de Abril que atiende a los vecinos de una obra desde la
+        /// intranet. El ID lo fija <c>20260929_ConvivirRolPropietario.sql</c>.
         /// </summary>
-        public const string Vecino                            = "97"; // VECINO
+        public const string Propietario                       = "97"; // PROPIETARIO
     }
 }

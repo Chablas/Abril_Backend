@@ -1,8 +1,9 @@
 namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application.Dtos
 {
+    /// <summary>El propietario entra con su DNI (<c>person.document_identity_code</c>), no con el correo.</summary>
     public class ConvivirLoginDto
     {
-        public string Email { get; set; } = null!;
+        public string Dni { get; set; } = null!;
         public string Password { get; set; } = null!;
     }
 
@@ -38,6 +39,8 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application
 
     public class ConvivirInvitacionDto
     {
+        /// <summary>Con el que ingresará de ahí en adelante: la pantalla se lo muestra.</summary>
+        public string? Dni { get; set; }
         public string Email { get; set; } = null!;
         public string? Nombres { get; set; }
     }
@@ -51,14 +54,17 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application
 
     public class ConvivirOlvideContrasenaDto
     {
-        public string Email { get; set; } = null!;
+        public string Dni { get; set; } = null!;
     }
 
-    /// <summary>Cuenta encontrada por correo, antes de validar la contraseña.</summary>
+    /// <summary>Cuenta encontrada por DNI, antes de validar la contraseña.</summary>
     public class ConvivirCuentaDto
     {
         public int UserId { get; set; }
+        /// <summary>Tal como está guardado: es con el que valida la contraseña el login de siempre.</summary>
         public string Email { get; set; } = null!;
         public bool TienePassword { get; set; }
+        /// <summary><c>app_user.active</c>: false = desactivada desde Seguridad, o todavía sin contraseña.</summary>
+        public bool Activa { get; set; }
     }
 }

@@ -2,6 +2,12 @@ using Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application.Int
 using Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application.Services;
 using Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Infrastructure.Interfaces;
 using Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Infrastructure.Repositories;
+using Abril_Backend.Features.ConvivirModule.Features.InicioFeature.Application.Interfaces;
+using Abril_Backend.Features.ConvivirModule.Features.InicioFeature.Application.Services;
+using Abril_Backend.Features.ConvivirModule.Features.MiProyectoFeature.Application.Interfaces;
+using Abril_Backend.Features.ConvivirModule.Features.MiProyectoFeature.Application.Services;
+using Abril_Backend.Features.ConvivirModule.Shared.Interfaces;
+using Abril_Backend.Features.ConvivirModule.Shared.Repositories;
 using Abril_Backend.Shared.Services.Convivir.Configuration;
 using Abril_Backend.Shared.Services.Convivir.Interfaces;
 using Abril_Backend.Shared.Services.Convivir.Services;
@@ -10,7 +16,8 @@ namespace Abril_Backend.Features.ConvivirModule
 {
     /// <summary>
     /// Backend de la app móvil Convivir Abril (repo aparte, React Native + Expo): la usan los
-    /// propietarios, que entran con el rol VECINO. Hoy solo tiene el acceso (AuthFeature).
+    /// propietarios, que entran con su DNI y el rol PROPIETARIO. Cada feature es una pantalla de
+    /// la app. Los propietarios y sus propiedades se dan de alta en la intranet (PropietariosModule).
     /// </summary>
     public static class ConvivirModule
     {
@@ -18,14 +25,24 @@ namespace Abril_Backend.Features.ConvivirModule
         {
             services.Configure<ConvivirOptions>(configuration.GetSection("Convivir"));
 
-            // Global (Shared/Services/Convivir) porque también lo usan Seguridad → Usuarios y el
-            // AuthService de la intranet para mandarle al vecino el enlace de la app y no el de la
-            // intranet. Se registra acá para no repartir lo de Convivir por Program.cs.
+            // Global (Shared/Services/Convivir) porque también lo usan Seguridad → Usuarios, el
+            // módulo Propietarios y el AuthService de la intranet para mandarle al propietario el
+            // enlace de la app y no el de la intranet. Se registra acá para no repartir lo de
+            // Convivir por Program.cs.
             services.AddScoped<IConvivirEnlaceService, ConvivirEnlaceService>();
+
+            // Shared del módulo: propiedades y avance del propietario (Inicio y Mi Proyecto)
+            services.AddScoped<IConvivirPropiedadesRepository, ConvivirPropiedadesRepository>();
 
             // AuthFeature
             services.AddScoped<IConvivirAuthRepository, ConvivirAuthRepository>();
             services.AddScoped<IConvivirAuthService, ConvivirAuthService>();
+
+            // InicioFeature
+            services.AddScoped<IConvivirInicioService, ConvivirInicioService>();
+
+            // MiProyectoFeature
+            services.AddScoped<IConvivirMiProyectoService, ConvivirMiProyectoService>();
 
             return services;
         }

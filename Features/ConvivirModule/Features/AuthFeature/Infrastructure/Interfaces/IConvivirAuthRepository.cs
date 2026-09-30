@@ -4,10 +4,11 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Infrastruct
 {
     public interface IConvivirAuthRepository
     {
-        /// <summary>Cuenta vigente por correo, sin distinguir mayúsculas.</summary>
-        Task<ConvivirCuentaDto?> GetCuentaPorEmail(string email);
+        /// <summary>Cuenta vigente de la persona con ese DNI (activa o no).</summary>
+        Task<ConvivirCuentaDto?> GetCuentaPorDni(string dni);
 
-        Task<string?> GetNombres(int userId);
+        /// <summary>Nombres y DNI de la persona del usuario.</summary>
+        Task<(string? Nombres, string? Dni)> GetPersona(int userId);
 
         /// <summary>Crea la sesión en <c>user_session</c> con el vencimiento indicado.</summary>
         Task<(string Token, DateTime ExpiresAt)> CrearSesion(int userId, DateTime expiresAt);

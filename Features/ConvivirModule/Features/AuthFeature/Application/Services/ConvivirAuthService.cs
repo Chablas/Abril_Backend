@@ -14,14 +14,16 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application
 {
     /// <summary>
     /// Login de la app Convivir Abril. Reusa todo lo de la intranet (app_user, user_role,
-    /// user_session, user_password_token, el JWT y el set-password); lo único propio es que solo
-    /// entran los usuarios con el rol VECINO y que la sesión nace más larga.
+    /// user_session, user_password_token, el JWT y el set-password); lo propio es que se entra con
+    /// el DNI (no con el correo), que solo entran los usuarios con el rol PROPIETARIO y que la
+    /// sesión nace más larga.
     /// </summary>
     public class ConvivirAuthService : IConvivirAuthService
     {
         private const int LargoMinimoPassword = 8;
         private const string EnlaceInvalido = "El enlace venció o ya fue usado. Pide uno nuevo desde «¿La olvidaste?».";
         private const string SinAcceso = "Tu cuenta no tiene acceso a Convivir Abril.";
+        private const string CredencialesInvalidas = "DNI o contraseña incorrectos.";
 
         private readonly IConvivirAuthRepository _repo;
         private readonly IAuthRepository _authRepo;
@@ -51,20 +53,24 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application
 
         public async Task<ConvivirLoginResponseDto> Login(ConvivirLoginDto dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.Email) || string.IsNullOrEmpty(dto.Password))
-                throw new AbrilException("Ingresa tu correo y tu contraseña.", 400);
+            if (string.IsNullOrWhiteSpace(dto.Dni) || string.IsNullOrEmpty(dto.Password))
+                throw new AbrilException("Ingresa tu DNI y tu contraseña.", 400);
 
-            var cuenta = await _repo.GetCuentaPorEmail(dto.Email)
-                ?? throw new AbrilException("Correo o contraseña incorrectos.", 401);
+            var cuenta = await _repo.GetCuentaPorDni(dto.Dni)
+                ?? throw new AbrilException(CredencialesInvalidas, 401);
 
             // Sin este corte, ValidateUserAsync revienta con un 500 al verificar contra un hash nulo.
             if (!cuenta.TienePassword)
                 throw new AbrilException("Todavía no creaste tu contraseña. Usa el enlace del correo de invitación.", 401);
 
-            var user = await _authRepo.ValidateUserAsync(cuenta.Email, dto.Password)
-                ?? throw new AbrilException("Correo o contraseña incorrectos.", 401);
+            // Con contraseña y sin active: la desactivaron desde Seguridad (crear la contraseña la activa).
+            if (!cuenta.Activa)
+                throw new AbrilException(SinAcceso, 403);
 
-            if (!await _enlaceService.EsVecinoAsync(user.UserId))
+            var user = await _authRepo.ValidateUserAsync(cuenta.Email, dto.Password)
+                ?? throw new AbrilException(CredencialesInvalidas, 401);
+
+            if (!await _enlaceService.EsPropietarioAsync(user.UserId))
                 throw new AbrilException(SinAcceso, 403);
 
             return await CrearRespuestaLogin(user);
@@ -78,8 +84,8 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application
             var userId = await _authRepo.GetUserIdByValidSessionAsync(sessionToken)
                 ?? throw new AbrilException("Tu sesión venció. Vuelve a ingresar.", 401);
 
-            // Se vuelve a mirar el rol en cada refresh: si le quitan VECINO, sale en ≤ 2 minutos.
-            if (!await _enlaceService.EsVecinoAsync(userId))
+            // Se vuelve a mirar el rol en cada refresh: si le quitan PROPIETARIO, sale en ≤ 2 minutos.
+            if (!await _enlaceService.EsPropietarioAsync(userId))
                 throw new AbrilException(SinAcceso, 401);
 
             var user = await _authRepo.GetUserForTokenAsync(userId)
@@ -96,16 +102,19 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application
             var enlace = await _tokenRepo.GetValidTokenAsync(token ?? "")
                 ?? throw new AbrilException(EnlaceInvalido, 404);
 
-            if (!await _enlaceService.EsVecinoAsync(enlace.UserId))
+            if (!await _enlaceService.EsPropietarioAsync(enlace.UserId))
                 throw new AbrilException(SinAcceso, 403);
 
             var user = await _authRepo.GetUserByIdAsync(enlace.UserId)
                 ?? throw new AbrilException(EnlaceInvalido, 404);
 
+            var persona = await _repo.GetPersona(enlace.UserId);
+
             return new ConvivirInvitacionDto
             {
+                Dni = persona.Dni,
                 Email = user.Email,
-                Nombres = await _repo.GetNombres(enlace.UserId)
+                Nombres = persona.Nombres
             };
         }
 
@@ -120,7 +129,7 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application
             var enlace = await _tokenRepo.GetValidTokenAsync(dto.Token ?? "")
                 ?? throw new AbrilException(EnlaceInvalido, 400);
 
-            if (!await _enlaceService.EsVecinoAsync(enlace.UserId))
+            if (!await _enlaceService.EsPropietarioAsync(enlace.UserId))
                 throw new AbrilException(SinAcceso, 403);
 
             // El mismo set-password de la intranet: guarda el hash, activa la cuenta, confirma el
@@ -141,14 +150,14 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application
 
         public async Task OlvideContrasena(ConvivirOlvideContrasenaDto dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.Email))
-                throw new AbrilException("Ingresa tu correo.", 400);
+            if (string.IsNullOrWhiteSpace(dto.Dni))
+                throw new AbrilException("Ingresa tu DNI.", 400);
 
-            // Siempre responde lo mismo (lo arma el controller): no se revela si el correo existe
-            // ni si es de un vecino.
-            var cuenta = await _repo.GetCuentaPorEmail(dto.Email);
+            // Siempre responde lo mismo (lo arma el controller): no se revela si el DNI tiene
+            // cuenta ni si es de un propietario. El enlace va al correo de la cuenta.
+            var cuenta = await _repo.GetCuentaPorDni(dto.Dni);
             if (cuenta != null)
-                await _enlaceService.EnviarEnlaceSiEsVecinoAsync(cuenta.UserId, ConvivirEnlaceTipo.Recuperacion);
+                await _enlaceService.EnviarEnlaceSiEsPropietarioAsync(cuenta.UserId, ConvivirEnlaceTipo.Recuperacion);
         }
 
         public string PaginaAbrirApp(string token)
@@ -200,7 +209,7 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application
                 {
                     UserId = user.UserId,
                     Email = user.Person.Email,
-                    Nombres = await _repo.GetNombres(user.UserId)
+                    Nombres = (await _repo.GetPersona(user.UserId)).Nombres
                 }
             };
         }

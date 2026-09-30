@@ -24,6 +24,7 @@ namespace Abril_Backend.Features.ConvivirModule
         public static IServiceCollection AddConvivirModule(this IServiceCollection services, IConfiguration configuration)
         {
             services.Configure<ConvivirOptions>(configuration.GetSection("Convivir"));
+            services.PostConfigure<ConvivirOptions>(ConvivirOptions.ReemplazarIpDeLaPc);
 
             // Global (Shared/Services/Convivir) porque también lo usan Seguridad → Usuarios, el
             // módulo Propietarios y el AuthService de la intranet para mandarle al propietario el

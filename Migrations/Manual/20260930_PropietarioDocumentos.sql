@@ -114,13 +114,10 @@ CREATE INDEX IF NOT EXISTS ix_propietario_documento_propietario_id
 
 COMMIT;
 
--- ── Carpeta: registrarla a mano ────────────────────────────────────────────
--- Crear en SharePoint la biblioteca (o carpeta) para estos documentos, con acceso restringido (son
--- datos personales), y registrar su link. Sin fila vigente, subir un documento avisa que falta.
---
--- INSERT INTO propietario_documento_folder (link_url, folder_name)
--- VALUES ('https://abrilinmob.sharepoint.com/sites/bibliotecanm/<Biblioteca>/Forms/AllItems.aspx',
---         'Documentos de propietarios');
+-- ── Carpeta: la registra el script de cada ambiente ────────────────────────
+-- Después de este: 20260930_PropietarioDocumentoFolder_Prod.sql en prod y
+-- 20260930_PropietarioDocumentoFolder_DevDemo.sql en dev y demo. Sin fila vigente, subir un
+-- documento avisa que falta.
 
 -- Verificación
 SELECT (SELECT string_agg(nombre, ', ' ORDER BY orden)

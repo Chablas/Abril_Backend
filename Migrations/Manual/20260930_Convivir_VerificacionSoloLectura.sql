@@ -36,14 +36,25 @@ WITH x AS (
                 THEN 'sí' ELSE 'no' END
     UNION ALL
     -- query_to_xml deja consultar la tabla solo si existe (el CASE no la toca si falta).
-    SELECT 6, 'A mano: plantilla al final de 20260930_PropietarioDocumentos.sql',
-           'Carpeta de SharePoint de los documentos (filas vigentes)', '1',
+    -- La base no sabe en qué ambiente está: la fila dice cuál de las dos carpetas quedó vigente.
+    SELECT 6, '20260930_PropietarioDocumentoFolder_Prod.sql (prod) o _DevDemo.sql (dev y demo)',
+           'Carpeta de SharePoint vigente (prod: Documentos de Propietarios; dev y demo: Desarrollo / App Convivir - Documentos de Propietarios)',
+           'prod en prod; dev y demo en dev y demo',
            CASE WHEN to_regclass('public.propietario_documento_folder') IS NULL THEN '(sin tabla)'
+                -- Un agregado para que siempre haya una fila: sin filas, xpath falla (documento vacío).
                 ELSE (xpath('/row/n/text()', query_to_xml(
-                        'SELECT count(*) AS n FROM propietario_documento_folder WHERE state AND active',
+                        $q$SELECT coalesce(max(CASE link_url
+                                    WHEN 'https://abrilinmob.sharepoint.com/sites/bibliotecanm/Documentos%20de%20Propietarios/Forms/AllItems.aspx'
+                                        THEN 'prod'
+                                    WHEN 'https://abrilinmob.sharepoint.com/sites/bibliotecanm/Desarrollo/Forms/AllItems.aspx?id=%2Fsites%2Fbibliotecanm%2FDesarrollo%2FApp%20Convivir%20%2D%20Documentos%20de%20Propietarios&viewid=087a516f%2Da398%2D433d%2Db208%2Df4aa51591a4d'
+                                        THEN 'dev y demo'
+                                    ELSE 'otra' END), '(ninguna)') AS n
+                           FROM propietario_documento_folder
+                           WHERE state AND active$q$,
                         false, true, '')))[1]::text
            END
 )
-SELECT script, que, esperado, ahora, ahora = esperado AS ok
+SELECT script, que, esperado, ahora,
+       CASE WHEN orden = 6 THEN ahora IN ('prod', 'dev y demo') ELSE ahora = esperado END AS ok
 FROM x
 ORDER BY orden;

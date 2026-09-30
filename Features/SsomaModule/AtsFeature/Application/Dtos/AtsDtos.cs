@@ -110,11 +110,12 @@ public class AtsHerramientaDto
 
 /// <summary>Quién puede firmar cada visto de un ATS, resuelto desde el proyecto (no hay tabla de
 /// roles por proyecto: la responsabilidad la define la ficha de Project, igual que
-/// AlertaLoginSsomaService). Se usa tanto para autorizar el POST cuanto para avisar por correo.</summary>
+/// AlertaLoginSsomaService). Se usa tanto para autorizar el POST cuanto para avisar por correo.
+/// Si quien llama es el Residente no se decide acá sino con IResidenteProyectoResolver, que
+/// cruza por persona: por eso no lleva la ficha del Residente.</summary>
 public class AtsResponsablesDto
 {
     public string ProyectoNombre { get; set; } = string.Empty;
-    public int? ResidenteWorkerId { get; set; }
     public string? ResidenteNombre { get; set; }
     public string? ResidenteEmail { get; set; }
     /// <summary>Coordinador SSOMA del proyecto — puede ser más de un correo (EmailCoordSsoma + CoordAdmin).</summary>

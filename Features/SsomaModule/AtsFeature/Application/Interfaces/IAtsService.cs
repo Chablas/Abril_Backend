@@ -11,7 +11,7 @@ public interface IAtsService
     Task<int> Crear(int workerId, AtsGuardarRequestDto dto);
     Task Editar(int id, int workerId, AtsGuardarRequestDto dto);
     Task<AtsResponseDto> GetPorId(int id, int callerUserId, int workerId, bool esAdmin);
-    Task<AtsListResponseDto> Listar(AtsFiltroDto filtro, int workerId, bool esAdmin);
+    Task<AtsListResponseDto> Listar(AtsFiltroDto filtro, int callerUserId, int workerId, bool esAdmin);
 
     Task Firmar(int id, int workerId, AtsFirmarRequestDto body, string? ipOrigen, string? userAgent);
     Task FirmarAutorizacion(int id, int callerUserId, bool esAdmin, AtsFirmarVistoRequestDto body);

@@ -9,8 +9,8 @@ public interface IPetarService
 
     Task<int> Crear(int workerId, PetarGuardarRequestDto dto);
     Task Editar(int id, int workerId, PetarGuardarRequestDto dto);
-    Task<PetarResponseDto> GetPorId(int id, int workerId, bool esAdmin);
-    Task<PetarListResponseDto> Listar(PetarFiltroDto filtro, int workerId, bool esAdmin);
+    Task<PetarResponseDto> GetPorId(int id, int callerUserId, int workerId, bool esAdmin);
+    Task<PetarListResponseDto> Listar(PetarFiltroDto filtro, int callerUserId, int workerId, bool esAdmin);
 
     Task Firmar(int id, int workerId, PetarFirmarRequestDto body, string? ipOrigen, string? userAgent);
     Task FirmarSupervisor(int id, int callerUserId, bool esAdmin, PetarFirmarVistoRequestDto body);

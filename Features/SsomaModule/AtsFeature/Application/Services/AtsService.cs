@@ -7,6 +7,7 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Helpers;
 using Abril_Backend.Shared.Services.Notificaciones.Dtos;
 using Abril_Backend.Shared.Services.Notificaciones.Interfaces;
+using Abril_Backend.Shared.Services.Residentes.Interfaces;
 using Microsoft.Extensions.Configuration;
 
 namespace Abril_Backend.Features.SsomaModule.AtsFeature.Application.Services;
@@ -18,6 +19,7 @@ public class AtsService : IAtsService
     private readonly IStorageContainerResolver _containerResolver;
     private readonly IConfiguration _configuration;
     private readonly INotificacionesService _notificacionesService;
+    private readonly IResidenteProyectoResolver _residentes;
     private readonly string[] _logoPaths;
 
     public AtsService(
@@ -26,6 +28,7 @@ public class AtsService : IAtsService
         IStorageContainerResolver containerResolver,
         IConfiguration configuration,
         INotificacionesService notificacionesService,
+        IResidenteProyectoResolver residentes,
         IWebHostEnvironment env)
     {
         _repository = repository;
@@ -33,6 +36,7 @@ public class AtsService : IAtsService
         _containerResolver = containerResolver;
         _configuration = configuration;
         _notificacionesService = notificacionesService;
+        _residentes = residentes;
         _logoPaths =
         [
             Path.Combine(env.WebRootPath, "images", "abril-logo.png"),
@@ -193,7 +197,7 @@ public class AtsService : IAtsService
     public async Task<AtsResponseDto> GetPorId(int id, int callerUserId, int workerId, bool esAdmin)
     {
         var ats = await _repository.GetPorId(id) ?? throw new AbrilException("ATS no encontrado.", 404);
-        var (esAutoriza, esSsoma) = await PuedeAutorizarYVistoBueno(ats, workerId, esAdmin);
+        var (esAutoriza, esSsoma) = await PuedeAutorizarYVistoBueno(ats, callerUserId, workerId, esAdmin);
 
         if (!esAdmin && ats.WorkerId != workerId && !esAutoriza && !esSsoma)
             throw new AbrilException("Este ATS no te pertenece.", 403);
@@ -209,8 +213,10 @@ public class AtsService : IAtsService
     /// Coordinador SSOMA configurado en el proyecto O cualquier prevencionista de Abril (puesto
     /// "Prevencionista", cualquier proyecto) O el Jefe/Administrador SSOMA. Nadie se autovalida su
     /// propio ATS — EXCEPTO el Jefe/Administrador SSOMA, que pidió acceso total sin bloqueo ni
-    /// siquiera sobre lo suyo (es la última instancia, no hay a quién más escalar).</summary>
-    private async Task<(bool EsAutoriza, bool EsSsoma)> PuedeAutorizarYVistoBueno(AtsResponseDto ats, int workerId, bool esAdmin)
+    /// siquiera sobre lo suyo (es la última instancia, no hay a quién más escalar).
+    /// El Residente se reconoce por persona (IResidenteProyectoResolver), no por la ficha del
+    /// caller: una persona puede tener varias fichas por reingreso y el proyecto guarda una.</summary>
+    private async Task<(bool EsAutoriza, bool EsSsoma)> PuedeAutorizarYVistoBueno(AtsResponseDto ats, int callerUserId, int workerId, bool esAdmin)
     {
         if (ats.WorkerId == workerId && !esAdmin) return (false, false);
         if (ats.WorkerId == workerId && esAdmin) return (true, true);
@@ -218,7 +224,7 @@ public class AtsService : IAtsService
         var responsables = await _repository.GetResponsables(ats.ProyectoId);
         var callerEmail = await _repository.GetEmailCorporativoWorker(workerId);
 
-        var esResidente = responsables.ResidenteWorkerId == workerId;
+        var esResidente = await _residentes.EsResidenteDelProyectoAsync(callerUserId, ats.ProyectoId);
         var esProduccion = !esResidente && await _repository.EsProduccionDeProyecto(workerId, ats.ProyectoId);
         var esCoordSsoma = callerEmail != null && responsables.SsomaEmails.Contains(callerEmail, StringComparer.OrdinalIgnoreCase);
         var esPrevencionista = !esCoordSsoma && await _repository.EsPrevencionistaAbril(workerId);
@@ -233,7 +239,7 @@ public class AtsService : IAtsService
     /// cualquier proyecto, y esAdmin también lo habilita a Autorizar/Visto Bueno en cualquiera
     /// (ver PuedeAutorizarYVistoBueno).
     /// </summary>
-    public async Task<AtsListResponseDto> Listar(AtsFiltroDto filtro, int workerId, bool esAdmin)
+    public async Task<AtsListResponseDto> Listar(AtsFiltroDto filtro, int callerUserId, int workerId, bool esAdmin)
     {
         if (!esAdmin)
         {
@@ -249,6 +255,7 @@ public class AtsService : IAtsService
         // calcula una vez; lo que depende del proyecto se cachea por proyecto, no por fila.
         var callerEmail = await _repository.GetEmailCorporativoWorker(workerId);
         var esPrevencionistaCaller = await _repository.EsPrevencionistaAbril(workerId);
+        var obrasDondeEsResidente = (await _residentes.ProyectosDelResidenteAsync(callerUserId)).ToHashSet();
         var responsablesPorProyecto = new Dictionary<int, AtsResponsablesDto>();
         var esProduccionPorProyecto = new Dictionary<int, bool>();
 
@@ -266,7 +273,8 @@ public class AtsService : IAtsService
                 esProduccionPorProyecto[ats.ProyectoId] = esProduccion;
             }
 
-            var (esAutoriza, esSsoma) = CalcularPermisos(ats, workerId, esAdmin, responsables, callerEmail, esProduccion, esPrevencionistaCaller);
+            var esResidente = obrasDondeEsResidente.Contains(ats.ProyectoId);
+            var (esAutoriza, esSsoma) = CalcularPermisos(ats, workerId, esAdmin, responsables, callerEmail, esResidente, esProduccion, esPrevencionistaCaller);
             MarcarPermisos(ats, esAutoriza, esSsoma);
             permisosPorAtsId[ats.Id] = (esAutoriza, esSsoma);
         }
@@ -277,11 +285,10 @@ public class AtsService : IAtsService
 
     private static (bool EsAutoriza, bool EsSsoma) CalcularPermisos(
         AtsResponseDto ats, int workerId, bool esAdmin, AtsResponsablesDto responsables,
-        string? callerEmail, bool esProduccion, bool esPrevencionistaCaller)
+        string? callerEmail, bool esResidente, bool esProduccion, bool esPrevencionistaCaller)
     {
         if (ats.WorkerId == workerId) return esAdmin ? (true, true) : (false, false);
 
-        var esResidente = responsables.ResidenteWorkerId == workerId;
         var esProduccionEfectivo = !esResidente && esProduccion;
         var esCoordSsoma = callerEmail != null && responsables.SsomaEmails.Contains(callerEmail, StringComparer.OrdinalIgnoreCase);
         var esPrevencionista = !esCoordSsoma && esPrevencionistaCaller;
@@ -402,7 +409,7 @@ public class AtsService : IAtsService
             var responsables = await _repository.GetResponsables(entidad.ProyectoId);
             if (rol == "Autoriza")
             {
-                var esResidente = responsables.ResidenteWorkerId == workerId;
+                var esResidente = await _residentes.EsResidenteDelProyectoAsync(callerUserId, entidad.ProyectoId);
                 var esProduccion = !esResidente && await _repository.EsProduccionDeProyecto(workerId, entidad.ProyectoId);
                 if (!esResidente && !esProduccion)
                     throw new AbrilException("Solo el Residente o el Ing./Arq. de Producción de este proyecto pueden firmar como Autoriza.", 403);

@@ -1,5 +1,5 @@
 -- ============================================================================
--- Residentes — verificación de los Pasos 5b, 5c, 5d y 6 de PLAN-RESIDENTES.md
+-- Residentes — verificación de los Pasos 5b, 5c, 5d, 5e y 6 de PLAN-RESIDENTES.md
 -- SOLO LECTURA: un único SELECT, no cambia nada. Se puede correr las veces que haga falta.
 -- Fecha: 2026-09-30
 --
@@ -16,6 +16,10 @@
 --       con el rol RESIDENTE), los proyectos activos donde ya no se podrá registrar una (sin
 --       residente con el rol, nadie la aprobaría) y las ya aprobadas por alguien que no era el
 --       residente.
+--   5e  ATS y PETAR: quién firma como residente (Autoriza del ATS, Supervisor del PETAR). Antes
+--       se comparaba la ficha del proyecto con la que ResolverWorkerIdAsync toma del usuario (la
+--       primera, sin ORDER BY); ahora, por persona. Solo cambia donde la persona del residente
+--       tiene más de una ficha viva o su usuario más de una persona.
 --   6   Lo que hará 20260930_ProjectResidentABitacora_PostDeploy.sql con cada fila de
 --       project_resident (se copia, no se copia o ABORTA).
 --
@@ -118,6 +122,17 @@ aprobador_feature AS (
   WHERE f.feature_key = 'ssoma.gestion.penalidades.aprobar-residente'
 ),
 
+-- 5e: el residente de cada proyecto, cuántas fichas vivas tiene su persona y cuántas personas su usuario
+residente_ats AS (
+  SELECT p.project_description, pe.full_name, pe.user_id,
+         (SELECT count(*) FROM workers w2 WHERE w2.person_id = pe.person_id AND w2.state) AS fichas_vivas,
+         (SELECT count(*) FROM person pe2 WHERE pe2.user_id = pe.user_id) AS personas_del_usuario
+  FROM project p
+  JOIN workers w ON w.id = p.residente_workers_id AND w.state
+  JOIN person pe ON pe.person_id = w.person_id
+  WHERE p.state AND p.active
+),
+
 -- 6: cada fila de project_resident con la ficha del residente antes del primer cambio de la bitácora
 tabla_vieja AS (
   SELECT pr.project_resident_id, pr.project_id, p.project_description, pr.user_id, pr.active, pr.state,
@@ -205,6 +220,16 @@ filas AS (
   JOIN project p ON p.project_id = sp.proyecto_id
   LEFT JOIN person pe ON pe.user_id = sp.aprobado_residente_por_id
   WHERE sp.aprobado_residente_por_id IS NOT NULL
+
+  UNION ALL
+  SELECT '5e ATS y PETAR: quién firma como residente',
+         r.project_description || ' · ' || coalesce(r.full_name, '(sin nombre)'),
+         CASE WHEN r.user_id IS NULL THEN 'nadie (sin usuario)'
+              WHEN r.fichas_vivas = 1 AND r.personas_del_usuario = 1 THEN 'su residente'
+              ELSE 'su residente solo si ResolverWorkerIdAsync toma esa ficha (' || r.fichas_vivas
+                   || ' fichas vivas, ' || r.personas_del_usuario || ' persona(s) con su usuario)' END,
+         CASE WHEN r.user_id IS NULL THEN 'nadie (sin usuario)' ELSE 'su residente' END
+  FROM residente_ats r
 
   UNION ALL
   SELECT '6 project_resident → bitácora (PostDeploy)',

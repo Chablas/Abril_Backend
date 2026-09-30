@@ -110,8 +110,9 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
         {
             try
             {
-                var workerId = await _service.ResolverWorkerId(CurrentUserId());
-                return Ok(await _service.Listar(filtro, workerId, EsAdmin()));
+                var userId = CurrentUserId();
+                var workerId = await _service.ResolverWorkerId(userId);
+                return Ok(await _service.Listar(filtro, userId, workerId, EsAdmin()));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.Listar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }

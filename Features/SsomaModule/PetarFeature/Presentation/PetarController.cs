@@ -77,8 +77,9 @@ namespace Abril_Backend.Features.SsomaModule.PetarFeature.Presentation
         {
             try
             {
-                var workerId = await _service.ResolverWorkerId(CurrentUserId());
-                return Ok(await _service.GetPorId(id, workerId, EsAdmin()));
+                var userId = CurrentUserId();
+                var workerId = await _service.ResolverWorkerId(userId);
+                return Ok(await _service.GetPorId(id, userId, workerId, EsAdmin()));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.GetPorId"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -89,8 +90,9 @@ namespace Abril_Backend.Features.SsomaModule.PetarFeature.Presentation
         {
             try
             {
-                var workerId = await _service.ResolverWorkerId(CurrentUserId());
-                return Ok(await _service.Listar(filtro, workerId, EsAdmin()));
+                var userId = CurrentUserId();
+                var workerId = await _service.ResolverWorkerId(userId);
+                return Ok(await _service.Listar(filtro, userId, workerId, EsAdmin()));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.Listar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }

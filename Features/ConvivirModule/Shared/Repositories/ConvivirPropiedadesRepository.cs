@@ -26,8 +26,12 @@ namespace Abril_Backend.Features.ConvivirModule.Shared.Repositories
         /// (mismo criterio que MilestoneScheduleRepository.GetFaltantesAsync) y los hitos para
         /// propietarios son <c>owner_milestone</c>, cada uno atado a un hito interno. El cronograma
         /// es por proyecto: la torre del propietario no lo cambia.
+        ///
+        /// Con <paramref name="conNotificaciones"/> (Inicio), el mismo viaje suma dos sentencias:
+        /// antes, crea los avisos que falten; al final, cuenta los no leídos de la campana
+        /// (<see cref="ConvivirNotificacionesSql"/>).
         /// </summary>
-        public async Task<ConvivirContextoDto> GetContexto(int userId, int? propietarioId)
+        public async Task<ConvivirContextoDto> GetContexto(int userId, int? propietarioId, bool conNotificaciones)
         {
             const string cte = """
                 WITH seleccion AS (
@@ -94,6 +98,13 @@ namespace Abril_Backend.Features.ConvivirModule.Shared.Repositories
                 ORDER BY om.owner_milestone_order;
                 """;
 
+            if (conNotificaciones)
+            {
+                sql = ConvivirNotificacionesSql.Generar + sql + ConvivirNotificacionesSql.Visibles + """
+                    SELECT count(*)::int FROM visibles WHERE NOT leida;
+                    """;
+            }
+
             using var ctx = _factory.CreateDbContext();
             var conn = ctx.Database.GetDbConnection();
             await conn.OpenAsync();
@@ -102,7 +113,13 @@ namespace Abril_Backend.Features.ConvivirModule.Shared.Repositories
             {
                 UserId = userId,
                 PropietarioId = propietarioId ?? 0,
+                TipoHito = ConvivirNotificacionTipo.Hito,
+                TipoDocumento = ConvivirNotificacionTipo.Documento,
             });
+
+            // Cuántos avisos creó: solo importa que se crearon antes de contarlos.
+            if (conNotificaciones)
+                await multi.ReadSingleAsync<int>();
 
             var contexto = new ConvivirContextoDto
             {
@@ -115,6 +132,9 @@ namespace Abril_Backend.Features.ConvivirModule.Shared.Repositories
             contexto.FinObraProyecto = cabecera.FinObraProyecto;
             contexto.DocumentosNuevos = cabecera.DocumentosNuevos;
             contexto.Hitos = (await multi.ReadAsync<ConvivirHitoFila>()).ToList();
+
+            if (conNotificaciones)
+                contexto.NotificacionesNuevas = await multi.ReadSingleAsync<int>();
 
             contexto.Seleccionada = contexto.Propiedades.FirstOrDefault(p => p.PropietarioId == propietarioId)
                 ?? contexto.Propiedades.FirstOrDefault();

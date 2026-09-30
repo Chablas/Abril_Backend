@@ -53,6 +53,17 @@ WITH x AS (
                            WHERE state AND active$q$,
                         false, true, '')))[1]::text
            END
+    UNION ALL
+    SELECT 7, '20260930_PropietarioNotificaciones.sql', 'Tablas de la campana (notificación y tipo) con los tipos HITO y DOCUMENTO', 'sí',
+           CASE WHEN to_regclass('public.propietario_notificacion') IS NULL
+                  OR to_regclass('public.propietario_notificacion_tipo') IS NULL THEN 'no'
+                -- Mismo truco que la fila 6: la tabla de tipos solo se consulta si existe.
+                ELSE (xpath('/row/n/text()', query_to_xml(
+                        $q$SELECT CASE WHEN count(*) = 2 THEN 'sí' ELSE 'faltan tipos' END AS n
+                           FROM propietario_notificacion_tipo
+                           WHERE state AND codigo IN ('HITO', 'DOCUMENTO')$q$,
+                        false, true, '')))[1]::text
+           END
 )
 SELECT script, que, esperado, ahora,
        CASE WHEN orden = 6 THEN ahora IN ('prod', 'dev y demo') ELSE ahora = esperado END AS ok

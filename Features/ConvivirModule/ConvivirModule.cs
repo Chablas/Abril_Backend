@@ -10,6 +10,10 @@ using Abril_Backend.Features.ConvivirModule.Features.InicioFeature.Application.I
 using Abril_Backend.Features.ConvivirModule.Features.InicioFeature.Application.Services;
 using Abril_Backend.Features.ConvivirModule.Features.MiProyectoFeature.Application.Interfaces;
 using Abril_Backend.Features.ConvivirModule.Features.MiProyectoFeature.Application.Services;
+using Abril_Backend.Features.ConvivirModule.Features.NotificacionesFeature.Application.Interfaces;
+using Abril_Backend.Features.ConvivirModule.Features.NotificacionesFeature.Application.Services;
+using Abril_Backend.Features.ConvivirModule.Features.NotificacionesFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.ConvivirModule.Features.NotificacionesFeature.Infrastructure.Repositories;
 using Abril_Backend.Features.ConvivirModule.Shared.Interfaces;
 using Abril_Backend.Features.ConvivirModule.Shared.Repositories;
 using Abril_Backend.Shared.Services.Convivir.Configuration;
@@ -56,6 +60,10 @@ namespace Abril_Backend.Features.ConvivirModule
             // DocumentosFeature
             services.AddScoped<IConvivirDocumentosRepository, ConvivirDocumentosRepository>();
             services.AddScoped<IConvivirDocumentosService, ConvivirDocumentosService>();
+
+            // NotificacionesFeature (la campana)
+            services.AddScoped<IConvivirNotificacionesRepository, ConvivirNotificacionesRepository>();
+            services.AddScoped<IConvivirNotificacionesService, ConvivirNotificacionesService>();
 
             return services;
         }

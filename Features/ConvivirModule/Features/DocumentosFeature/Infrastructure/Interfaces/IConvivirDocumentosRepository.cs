@@ -14,7 +14,10 @@ namespace Abril_Backend.Features.ConvivirModule.Features.DocumentosFeature.Infra
         /// <summary>Null si no es un documento vigente de una propiedad vigente del usuario.</summary>
         Task<ConvivirDocumentoArchivoFila?> GetArchivo(int userId, int documentoId);
 
-        /// <summary>Guarda la primera apertura (las siguientes no la pisan).</summary>
+        /// <summary>
+        /// Guarda la primera apertura (las siguientes no la pisan) y deja leído su aviso de la
+        /// campana.
+        /// </summary>
         Task MarcarLeido(int documentoId);
     }
 }

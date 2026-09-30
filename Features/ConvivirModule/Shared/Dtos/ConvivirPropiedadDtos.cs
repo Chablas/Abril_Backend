@@ -62,6 +62,11 @@ namespace Abril_Backend.Features.ConvivirModule.Shared.Dtos
         public DateTime? FinObraProyecto { get; set; }
         /// <summary>Documentos de la propiedad elegida que el propietario todavía no abrió.</summary>
         public int DocumentosNuevos { get; set; }
+        /// <summary>
+        /// Avisos de la campana sin leer, de todas sus propiedades. Solo si se pidió con
+        /// notificaciones (Inicio).
+        /// </summary>
+        public int NotificacionesNuevas { get; set; }
     }
 
     /// <summary>

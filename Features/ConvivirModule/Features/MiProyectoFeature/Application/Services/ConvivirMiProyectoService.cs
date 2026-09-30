@@ -16,7 +16,7 @@ namespace Abril_Backend.Features.ConvivirModule.Features.MiProyectoFeature.Appli
 
         public async Task<ConvivirMiProyectoDto> GetMiProyecto(int userId, int? propietarioId)
         {
-            var contexto = await _repo.GetContexto(userId, propietarioId);
+            var contexto = await _repo.GetContexto(userId, propietarioId, conNotificaciones: false);
             if (contexto.Seleccionada == null)
                 return new ConvivirMiProyectoDto();
 

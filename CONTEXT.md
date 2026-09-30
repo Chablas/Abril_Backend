@@ -6732,3 +6732,58 @@ El usuario quiere un módulo nuevo de "Contratos" en Unidad de Proyectos, tomand
 - El usuario debe compartir las 2 plantillas `.docx` **en blanco con placeholders** (lo compartido hasta ahora es un contrato ya cerrado/lleno, no sirve como plantilla reutilizable sin inventar texto legal).
 - Falta el correo exacto de Unidad de Proyectos para el paso 8.
 - No se creó ninguna entidad, migración ni endpoint de este módulo todavía — toda esta sección es solo diseño acordado en conversación.
+
+## Sesión 2026-09-29 (cont.) — Módulo Contratos implementado (Unidad de Proyectos)
+
+Continuación de la sesión anterior (exploración + placeholders de la plantilla). El usuario compartió la plantilla `.docx` genérica ya con los 18 placeholders aplicados en Word, y se construyó el módulo completo punto por punto.
+
+### Cambios: módulo Contratos (implementado y aplicado en BD)
+
+**Entidades nuevas** (`Features/UnidadDeProyectosModule/Features/ContratosFeature/Infrastructure/Models/`):
+- `ProjectContract` — cabecera: `ProjectId`, `ContractorId`/`WorkSpecialtyId` (reutilizan `Contractor`/`Contributor`/`WorkSpecialty` de Costos), `ProjectContractStatusId` (1-9), montos/fechas, `DetalleServicios` (texto libre pegado a mano, cláusula Cuarta), campos de pasos 4-9 (`ContractorNotificationSkipped`, `ArrivedWithObservations`/`ArrivalObservation`, `Step6Signed{JefeProyectos,GerenteInmobiliario,GerenteGeneral}`), y referencia del último documento generado (`ContractFileUrl`/`ContractOriginalFileName`/`ContractStorageItemId`).
+- `ProjectContractMilestone` — hitos de pago **libres por contrato** (no catálogo fijo): `Order`, `Description`, `Percentage`, columnas de la Hoja Resumen (`PaidDate`, `ChequeRecibo`, `Observation`). El "hito de garantía" (cláusula Octava) siempre es el último por `Order`, calculado en runtime, sin flag propio.
+- `ProjectContractStatus` — catálogo de 9 pasos, paralelo a `ProjectSubContractorStatus` de Adjudicaciones, con el paso 8 notificando a **Unidad de Proyectos** (`unidadproyectosnm@abril.pe`) en vez de a Staff de Obra.
+- `ProjectContractFolder` — carpeta de SharePoint configurable **por proyecto** (no un singleton único como ActasReunion; el usuario pidió el patrón "elaborado" de Adjudicaciones).
+- `ProjectContractScannedDoc` — tabla lista para el paso 7 (escaneo del firmado), **endpoint de subida todavía no implementado**.
+
+**Generación del contrato (paso 3)** — `ProjectContractService.GenerateContractAsync`:
+- Arma los 18 placeholders + la lista dinámica `{{HITOS_DE_PAGO}}` (un párrafo por hito, `%` + descripción) usando **`WordTemplateHelper`** (`Shared/Helpers/WordTemplateHelper.cs`, ya usado por Adjudicaciones) — soporta placeholders fragmentados entre runs de Word (ej. el `{{HITO_GARANTIA_PORCENTAJE}}` partido por un `<w:proofErr>` de la plantilla real, sin tocar el archivo).
+- `ValidateGenerationData` bloquea con la lista exacta de campos faltantes antes de generar (mismo patrón que Adjudicaciones).
+- Selecciona plantilla por especialidad: genérica (`Templates/plantilla_generica_con_placeholders.docx`, la que compartió el usuario) o Arquitectura/Estructuras (**pendiente, archivo no entregado todavía** — el match por texto `WorkSpecialtyDescription.Contains("ARQUITECTURA"|"ESTRUCTURA")` ya se verificó contra el catálogo real de `WorkSpecialty`, sin falsos positivos).
+- Sube el `.docx` generado a SharePoint (best-effort: si el proyecto no tiene la carpeta de Contratos configurada, no bloquea la generación — solo no persiste la referencia) y siempre devuelve los bytes para descarga directa.
+
+**Almacenamiento (SharePoint)**:
+- `ProjectContractFolderService`/`Repository` — Configuración → Carpeta de Contratos, un link de SharePoint por proyecto (no por tipo, a diferencia de Adjudicaciones que separa 04_OBRAS/07_OT — se simplificó a propósito), resuelto vía `IGraphSharePointService.ResolveSharePointFolderUrlAsync` con el mismo filtro de host del tenant que usa `ActasReunionService`.
+- `ProjectContractStorage` — sube el `.docx` a `{Carpeta configurada}/{Especialidad}/{RUC - Razón Social}/{CONTRATO N° X}/Contrato`, reutilizando `IGraphSharePointService` (infra compartida) sin duplicar la lógica de folder-aliasing/partida de `AdjudicacionOneDriveStorage` (no aplica acá). El nombre "CONTRATO N° X" es autoincremental y se persiste la primera vez, igual que `AdjudicacionFolderName`.
+
+**Flujo de 9 pasos** — endpoints en `ProjectContractController`:
+- Paso 3 `POST /{id}/generar-contrato` (ver arriba).
+- Paso 4 `POST /{id}/paso4-enviar?skipNotification=` — genera el `.docx` en memoria y lo envía por correo al `ContractorEmail`, o solo marca "enviado fuera del sistema".
+- Paso 5 `PATCH /{id}/paso5-llegada` — llegada a Oficina Central, con/sin observaciones.
+- Paso 6 `PATCH /{id}/paso6-firmas` — 3 checkboxes independientes (Jefe de Proyectos, Gerente Inmobiliario, Gerente General — roles acordados con el usuario, distintos de los 3 de Adjudicaciones).
+- Paso 7 — **no implementado** (tabla lista, sin endpoint de subida).
+- Paso 8 `POST /{id}/paso8-notificar` — correo a Unidad de Proyectos.
+- Paso 9 `POST /{id}/paso9-cerrar`.
+
+**Permisos**: `ContratosFeatures.Ver` = `unidad-de-proyectos.contratos` (creada, sin roles asignados a propósito) y `ContratosFeatures.Editar` = `unidad-de-proyectos.contratos.editar` (asignada a COORDINADOR DE PROYECTOS, JEFE DE PROYECTOS, GERENTE INMOBILIARIO, USUARIO DE UDP — este último cubre a quienes tienen el puesto "Ingeniero de Proyecto"/"Arquitecto de Proyectos", que no son roles de sistema separados). Atado al módulo "Proyectos" (module_id, resuelto por nombre) — no existe un módulo "Unidad de Proyectos" en el sidebar hoy.
+
+**3 migraciones EF**, las 3 recortadas a mano (mismo patrón de drift ya documentado): `AddContratosFeature` (tablas base, arrastraba backlog del merge reciente de `origin/master` — `ga_actor*`, `project_tipo`, `project_torre`, etc., ya aplicado vía `Migrations/Manual/`), `AddContratosPasos4a9` (campos de pasos 4-6 + `project_contract_scanned_doc`, limpia sin backlog), `AddContratosStorage` (`project_contract_folder` + referencia del documento generado, limpia sin backlog).
+
+**Seeds manuales aplicados por el usuario y verificados**:
+- `Migrations_Manual/2026-09-29_project_contract_status_seed.sql` — los 9 pasos.
+- `Migrations/Manual/20260929_ContratosFeatureRoles.sql` — features + role_feature.
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/ContratosFeature/` (feature completa: Application/{Constants,Dtos,Interfaces,Services}, Infrastructure/{Interfaces,Models,Repositories}, Presentation, Templates)
+- `Migrations/2026092923*_AddContratos*.cs`, `Migrations/AppDbContextModelSnapshot.cs`
+- `Migrations_Manual/2026-09-29_project_contract_status_seed.sql`, `Migrations/Manual/20260929_ContratosFeatureRoles.sql`
+- `Shared/Data/AppContext.cs`, `Features/UnidadDeProyectosModule/UnidadDeProyectosModule.cs`, `Abril-Backend.csproj` (Templates con `CopyToOutputDirectory`)
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores en cada paso. Los 3 scripts SQL (schema x3 + 2 seeds) corridos por el usuario contra producción (único entorno, D1), verificados con SELECT de solo lectura en cada uno.
+
+### Pendiente
+- **Plantilla Arquitectura/Estructuras**: el usuario todavía no la comparte. Sin ella, `GenerateContractAsync` tira `AbrilException` clara para esas 2 especialidades.
+- **Paso 7** (escaneo del contrato firmado): tabla `ProjectContractScannedDoc` lista, falta el endpoint de subida.
+- **Frontend**: no se tocó nada — se le entregó al usuario un prompt completo (entidades, DTOs, los ~15 endpoints, los 9 estados, feature keys) para la sesión de Claude Code del frontend.
+- Especialidades `IIMM` (id 11) y `OBRAS PROVISIONALES` (id 1) están **inactivas** en `work_specialty` — si se necesita crear un contrato de IIMM pronto, hay que reactivar esa fila primero (no se tocó, es dato del usuario).

@@ -18,16 +18,16 @@ namespace Abril_Backend.Controllers
             _residentMonitoringService = residentMonitoringService;
         }
 
-        //[Authorize]
+        [Authorize]
         [HttpGet]
         public async Task<IActionResult> Get([FromQuery] TrackingQueryDto query)
         {
             try
             {
-                /*var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
 
                 if (userIdClaim == null)
-                    return Unauthorized(new { message = "Inicie sesión" });*/
+                    return Unauthorized(new { message = "Inicie sesión" });
 
                 var result = await _residentMonitoringService.GetTrackingAsync(query);
                 return Ok(result);

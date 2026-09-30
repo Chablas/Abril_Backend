@@ -57,6 +57,18 @@ namespace Abril_Backend.Features.ConvivirModule.Features.AuthFeature.Application
         public string Dni { get; set; } = null!;
     }
 
+    /// <summary>
+    /// Cambio de contraseña desde la app, con sesión. Pide la actual (RF-24: acción sensible). El
+    /// session token es el del teléfono: esa sesión se queda y las demás se cierran.
+    /// </summary>
+    public class ConvivirCambiarContrasenaDto
+    {
+        public string SessionToken { get; set; } = null!;
+        public string PasswordActual { get; set; } = null!;
+        public string Password { get; set; } = null!;
+        public string ConfirmPassword { get; set; } = null!;
+    }
+
     /// <summary>Cuenta encontrada por DNI, antes de validar la contraseña.</summary>
     public class ConvivirCuentaDto
     {

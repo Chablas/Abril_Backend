@@ -9,6 +9,7 @@ using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Helpers;
 using Abril_Backend.Shared.Services.Notificaciones.Dtos;
 using Abril_Backend.Shared.Services.Notificaciones.Interfaces;
+using Abril_Backend.Shared.Services.Residentes.Interfaces;
 using Microsoft.Extensions.Configuration;
 
 namespace Abril_Backend.Features.SsomaModule.PetarFeature.Application.Services;
@@ -23,6 +24,8 @@ public class PetarService : IPetarService
     private readonly IStorageContainerResolver _containerResolver;
     private readonly IConfiguration _configuration;
     private readonly INotificacionesService _notificacionesService;
+    // Si quien llama es el Residente del proyecto: por persona, igual que en ATS.
+    private readonly IResidenteProyectoResolver _residentes;
     private readonly string[] _logoPaths;
 
     public PetarService(
@@ -32,6 +35,7 @@ public class PetarService : IPetarService
         IStorageContainerResolver containerResolver,
         IConfiguration configuration,
         INotificacionesService notificacionesService,
+        IResidenteProyectoResolver residentes,
         IWebHostEnvironment env)
     {
         _repository = repository;
@@ -40,6 +44,7 @@ public class PetarService : IPetarService
         _containerResolver = containerResolver;
         _configuration = configuration;
         _notificacionesService = notificacionesService;
+        _residentes = residentes;
         _logoPaths =
         [
             Path.Combine(env.WebRootPath, "images", "abril-logo.png"),
@@ -92,13 +97,13 @@ public class PetarService : IPetarService
                 "Hay ítems del checklist marcados como NO cumplidos — el trabajo no puede iniciar hasta corregirlos.", 400);
     }
 
-    public async Task<PetarResponseDto> GetPorId(int id, int workerId, bool esAdmin)
+    public async Task<PetarResponseDto> GetPorId(int id, int callerUserId, int workerId, bool esAdmin)
     {
         var petar = await _repository.GetPorId(id) ?? throw new AbrilException("PETAR no encontrado.", 404);
         var responsables = await _atsRepository.GetResponsables(petar.ProyectoId);
         var callerEmail = await _atsRepository.GetEmailCorporativoWorker(workerId);
 
-        var esResidente = responsables.ResidenteWorkerId == workerId;
+        var esResidente = await _residentes.EsResidenteDelProyectoAsync(callerUserId, petar.ProyectoId);
         var esSsoma = callerEmail != null && responsables.SsomaEmails.Contains(callerEmail, StringComparer.OrdinalIgnoreCase);
 
         if (!esAdmin && petar.WorkerId != workerId && !esResidente && !esSsoma)
@@ -108,10 +113,11 @@ public class PetarService : IPetarService
         return petar;
     }
 
-    public async Task<PetarListResponseDto> Listar(PetarFiltroDto filtro, int workerId, bool esAdmin)
+    public async Task<PetarListResponseDto> Listar(PetarFiltroDto filtro, int callerUserId, int workerId, bool esAdmin)
     {
         var res = await _repository.Listar(filtro);
         var callerEmail = await _atsRepository.GetEmailCorporativoWorker(workerId);
+        var obrasDondeEsResidente = (await _residentes.ProyectosDelResidenteAsync(callerUserId)).ToHashSet();
 
         var cache = new Dictionary<int, Abril_Backend.Features.SsomaModule.AtsFeature.Application.Dtos.AtsResponsablesDto>();
         foreach (var petar in res.Data)
@@ -122,7 +128,7 @@ public class PetarService : IPetarService
                 cache[petar.ProyectoId] = responsables;
             }
 
-            var esResidente = responsables.ResidenteWorkerId == workerId;
+            var esResidente = obrasDondeEsResidente.Contains(petar.ProyectoId);
             var esSsoma = callerEmail != null && responsables.SsomaEmails.Contains(callerEmail, StringComparer.OrdinalIgnoreCase);
             MarcarPermisos(petar, workerId, esResidente || esAdmin, esSsoma || esAdmin);
         }
@@ -218,7 +224,7 @@ public class PetarService : IPetarService
         {
             if (rol == "Supervisor")
             {
-                if (responsables.ResidenteWorkerId != workerId)
+                if (!await _residentes.EsResidenteDelProyectoAsync(callerUserId, entidad.ProyectoId))
                     throw new AbrilException("Solo el Residente/Supervisor asignado a este proyecto puede firmar este visto.", 403);
             }
             else

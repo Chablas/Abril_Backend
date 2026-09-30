@@ -777,7 +777,6 @@ public class AtsRepository : IAtsRepository
         return new AtsResponsablesDto
         {
             ProyectoNombre = proyecto.ProjectDescription,
-            ResidenteWorkerId = residente?.Id,
             ResidenteNombre = residente?.Person?.FullName,
             ResidenteEmail = residente?.EmailCorporativo,
             SsomaEmails = ssomaEmails.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),

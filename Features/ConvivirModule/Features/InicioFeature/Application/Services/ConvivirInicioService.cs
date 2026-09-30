@@ -25,6 +25,7 @@ namespace Abril_Backend.Features.ConvivirModule.Features.InicioFeature.Applicati
                 PropietarioId = contexto.Seleccionada?.PropietarioId,
                 // Inicio muestra solo el resumen; la lista de hitos es de Mi Proyecto.
                 Avance = contexto.Seleccionada == null ? null : AvanceObra.Calcular(contexto).Avance,
+                DocumentosNuevos = contexto.DocumentosNuevos,
             };
         }
     }

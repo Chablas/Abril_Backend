@@ -60,6 +60,8 @@ namespace Abril_Backend.Features.ConvivirModule.Shared.Dtos
         public bool TieneCronograma { get; set; }
         public List<ConvivirHitoFila> Hitos { get; set; } = new();
         public DateTime? FinObraProyecto { get; set; }
+        /// <summary>Documentos de la propiedad elegida que el propietario todavía no abrió.</summary>
+        public int DocumentosNuevos { get; set; }
     }
 
     /// <summary>

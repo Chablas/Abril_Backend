@@ -13,5 +13,7 @@ namespace Abril_Backend.Features.ConvivirModule.Features.InicioFeature.Applicati
         public int? PropietarioId { get; set; }
         /// <summary>Avance del proyecto de esa propiedad. Null si no tiene propiedades.</summary>
         public ConvivirAvanceDto? Avance { get; set; }
+        /// <summary>Documentos de esa propiedad que todavía no abrió (acceso rápido a «Mis documentos»).</summary>
+        public int DocumentosNuevos { get; set; }
     }
 }

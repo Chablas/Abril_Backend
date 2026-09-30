@@ -31,7 +31,7 @@ namespace Abril_Backend.Features.ConvivirModule.Shared.Repositories
         {
             const string cte = """
                 WITH seleccion AS (
-                    SELECT pr.project_id
+                    SELECT pr.propietario_id, pr.project_id
                     FROM propietario pr
                     JOIN person p   ON p.person_id = pr.person_id AND p.state
                     JOIN project pj ON pj.project_id = pr.project_id
@@ -69,7 +69,9 @@ namespace Abril_Backend.Features.ConvivirModule.Shared.Repositories
                 ORDER BY pj.project_description, pr.torre NULLS FIRST, pr.departamento, pr.propietario_id;
                 """ + cte + """
                 SELECT EXISTS (SELECT 1 FROM version) AS tiene_cronograma,
-                       (SELECT pj.fin_obra::timestamp FROM project pj JOIN seleccion s ON s.project_id = pj.project_id) AS fin_obra_proyecto;
+                       (SELECT pj.fin_obra::timestamp FROM project pj JOIN seleccion s ON s.project_id = pj.project_id) AS fin_obra_proyecto,
+                       (SELECT count(*)::int FROM propietario_documento d JOIN seleccion s ON s.propietario_id = d.propietario_id
+                        WHERE d.state AND d.leido_date_time IS NULL) AS documentos_nuevos;
                 """ + cte + """
                 SELECT om.owner_milestone_order AS orden,
                        om.description           AS descripcion,
@@ -111,6 +113,7 @@ namespace Abril_Backend.Features.ConvivirModule.Shared.Repositories
             var cabecera = await multi.ReadSingleAsync<CabeceraFila>();
             contexto.TieneCronograma = cabecera.TieneCronograma;
             contexto.FinObraProyecto = cabecera.FinObraProyecto;
+            contexto.DocumentosNuevos = cabecera.DocumentosNuevos;
             contexto.Hitos = (await multi.ReadAsync<ConvivirHitoFila>()).ToList();
 
             contexto.Seleccionada = contexto.Propiedades.FirstOrDefault(p => p.PropietarioId == propietarioId)
@@ -125,5 +128,6 @@ namespace Abril_Backend.Features.ConvivirModule.Shared.Repositories
     {
         public bool TieneCronograma { get; set; }
         public DateTime? FinObraProyecto { get; set; }
+        public int DocumentosNuevos { get; set; }
     }
 }

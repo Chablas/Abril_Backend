@@ -4,7 +4,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
     public class ProjectContractCreateDTO
     {
         public int ProjectId { get; set; }
-        public int ContractorId { get; set; }
+        /// <summary>Contributor directo (NO Contractor) — se obtiene vía
+        /// GET /api/v1/project/company-lookup/{ruc}.</summary>
+        public int ContributorId { get; set; }
         public int WorkSpecialtyId { get; set; }
         public string? ServiceDescription { get; set; }
         public decimal Amount { get; set; }
@@ -34,7 +36,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
     {
         public int ProjectContractId { get; set; }
         public int ProjectId { get; set; }
-        public int ContractorId { get; set; }
+        public int ContributorId { get; set; }
         public string? ContractorName { get; set; }
         public int WorkSpecialtyId { get; set; }
         public string? WorkSpecialtyDescription { get; set; }

@@ -1,13 +1,18 @@
 namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeature.Infrastructure.Models {
     /// <summary>Contrato de locación de servicios con un consultor/proyectista de diseño (Unidad de
     /// Proyectos) — distinto de los contratos de subcontratistas de construcción de Adjudicaciones
-    /// (Costos), aunque reutiliza sus mismas tablas de Contractor/Contributor y WorkSpecialty.</summary>
+    /// (Costos). Reutiliza Contributor (razón social universal) pero NO Contractor: esa tabla es
+    /// el wrapper de onboarding/portal de subcontratistas de Adjudicaciones, con aprobación de
+    /// Costos — no aplica a consultores de diseño, que en la práctica casi nunca pasan por ahí
+    /// (hallazgo de la sesión 2026-10-01: Juan Pablo Mendoza Incacari, consultor real, no existía
+    /// ni como Contributor).</summary>
     public class ProjectContract {
         public int ProjectContractId {get; set;}
         public int ProjectId {get; set;}
-        /// <summary>FK a Contractor (Shared/Models) — mismo contratista que usa Adjudicaciones,
-        /// puede ser persona natural (RUC 10) o jurídica (RUC 20).</summary>
-        public int ContractorId {get; set;}
+        /// <summary>FK a Contributor (Shared/Models) directo — NO a Contractor. Se crea/busca vía
+        /// GET /api/v1/project/company-lookup/{ruc} (Sunat), igual que la razón social de un
+        /// Project — sin pasar por el onboarding/aprobación de Costos.</summary>
+        public int ContributorId {get; set;}
         /// <summary>FK a WorkSpecialty (Costos/Configuration) — especialidad de diseño (Instalaciones
         /// Eléctricas, Sanitarias, Estructuras, Arquitectura, etc.). Determina qué plantilla .docx
         /// se usa: Arquitectura/Estructuras tiene la suya, el resto comparte la genérica.</summary>

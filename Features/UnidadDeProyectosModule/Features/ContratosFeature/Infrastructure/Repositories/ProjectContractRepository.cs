@@ -34,8 +34,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
 
             var contratos = await (
                 from pc in ctx.ProjectContract
-                join contractor in ctx.Contractor on pc.ContractorId equals contractor.ContractorId
-                join contrib in ctx.Contributor on contractor.ContributorId equals contrib.ContributorId
+                join contrib in ctx.Contributor on pc.ContributorId equals contrib.ContributorId
                 join ws in ctx.WorkSpecialty on pc.WorkSpecialtyId equals ws.WorkSpecialtyId
                 join curr in ctx.Currency on pc.CurrencyId equals curr.CurrencyId
                 join status in ctx.ProjectContractStatus on pc.ProjectContractStatusId equals status.ProjectContractStatusId
@@ -45,7 +44,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
                 {
                     ProjectContractId = pc.ProjectContractId,
                     ProjectId = pc.ProjectId,
-                    ContractorId = pc.ContractorId,
+                    ContributorId = pc.ContributorId,
                     ContractorName = contrib.ContributorName,
                     WorkSpecialtyId = pc.WorkSpecialtyId,
                     WorkSpecialtyDescription = ws.WorkSpecialtyDescription,
@@ -83,8 +82,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
 
             var dto = await (
                 from pc in ctx.ProjectContract
-                join contractor in ctx.Contractor on pc.ContractorId equals contractor.ContractorId
-                join contrib in ctx.Contributor on contractor.ContributorId equals contrib.ContributorId
+                join contrib in ctx.Contributor on pc.ContributorId equals contrib.ContributorId
                 join ws in ctx.WorkSpecialty on pc.WorkSpecialtyId equals ws.WorkSpecialtyId
                 join curr in ctx.Currency on pc.CurrencyId equals curr.CurrencyId
                 join status in ctx.ProjectContractStatus on pc.ProjectContractStatusId equals status.ProjectContractStatusId
@@ -93,7 +91,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
                 {
                     ProjectContractId = pc.ProjectContractId,
                     ProjectId = pc.ProjectId,
-                    ContractorId = pc.ContractorId,
+                    ContributorId = pc.ContributorId,
                     ContractorName = contrib.ContributorName,
                     WorkSpecialtyId = pc.WorkSpecialtyId,
                     WorkSpecialtyDescription = ws.WorkSpecialtyDescription,
@@ -151,7 +149,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
             var nuevo = new ProjectContract
             {
                 ProjectId = dto.ProjectId,
-                ContractorId = dto.ContractorId,
+                ContributorId = dto.ContributorId,
                 WorkSpecialtyId = dto.WorkSpecialtyId,
                 ProjectContractStatusId = 1, // Paso 1: Cotización/comparativo
                 ServiceDescription = dto.ServiceDescription,
@@ -264,8 +262,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
             var data = await (
                 from pc in ctx.ProjectContract
                 join proj in ctx.Project on pc.ProjectId equals proj.ProjectId
-                join contractor in ctx.Contractor on pc.ContractorId equals contractor.ContractorId
-                join contrib in ctx.Contributor on contractor.ContributorId equals contrib.ContributorId
+                join contrib in ctx.Contributor on pc.ContributorId equals contrib.ContributorId
                 join ws in ctx.WorkSpecialty on pc.WorkSpecialtyId equals ws.WorkSpecialtyId
                 join curr in ctx.Currency on pc.CurrencyId equals curr.CurrencyId
                 // Razón social "EL CONTRATANTE" — Contributor asociado al proyecto (Project.ContributorId).

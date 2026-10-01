@@ -88,6 +88,38 @@ namespace Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.Ap
     }
 
     /// <summary>
+    /// Envío manual de un recordatorio (Solicitud de Salidas → Configuración → Recordatorios), paso
+    /// 1: qué saldría si el cron corriera el día elegido. No envía nada.
+    /// </summary>
+    public class RecordatorioSimulacionDto
+    {
+        /// <summary>false = ese día no sale ningún correo; <see cref="Motivo"/> dice por qué.</summary>
+        public bool SeEnvia { get; set; }
+        public string? Motivo { get; set; }
+
+        /// <summary>Cuántos correos salen: uno por trabajador con salidas sin rendir.</summary>
+        public int Correos { get; set; }
+
+        /// <summary>Los destinatarios de todos esos correos, sin repetir a nadie.</summary>
+        public List<string> Para { get; set; } = new();
+        public List<string> Copia { get; set; } = new();
+
+        /// <summary>Siempre vacío: los correos de salidas no llevan copia oculta. Va por la forma
+        /// compartida con el envío manual del Cronograma de Hitos.</summary>
+        public List<string> CopiaOculta { get; set; } = new();
+    }
+
+    /// <summary>Envío manual, paso 2: lo que salió.</summary>
+    public class RecordatorioEnvioManualDto
+    {
+        public int Enviados { get; set; }
+        public int Fallidos { get; set; }
+
+        /// <summary>Solo cuando no salió nada: por qué.</summary>
+        public string? Motivo { get; set; }
+    }
+
+    /// <summary>
     /// Lo que el endpoint le devuelve al cron. No es para una pantalla: es lo que queda en el log
     /// de cron-job.org y lo único con lo que se puede saber qué pasó un día cualquiera.
     /// </summary>

@@ -1,6 +1,7 @@
 using Abril_Backend.Application.Exceptions;
 using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application.Dtos;
 using Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastructure.Interfaces;
+using Abril_Backend.Features.GestionAdministrativa.Shared.Email;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Models;
 using Abril_Backend.Features.GestionAdministrativa.Shared.Services;
 using Abril_Backend.Infrastructure.Data;
@@ -180,6 +181,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
 
             foreach (var ev in eventos)
             {
+                ev.Asunto = CorreoSalidaAsuntos.Plantilla(ev.Codigo);
                 ev.Destinatarios = reglas
                     .Where(r => r.EventoId == ev.Id)
                     .Select(r =>

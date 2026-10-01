@@ -33,9 +33,14 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             string eventoCodigo,
             IEnumerable<string>? destinatarioPrincipal = null,
             IEnumerable<string>? baseCc = null,
+            IEnumerable<string>? jefeArea = null) =>
+            (await PrepararEnvioAsync(eventoCodigo, baseCc, jefeArea))(destinatarioPrincipal);
+
+        public async Task<Func<IEnumerable<string>?, CorreoSalidaEnvioDto>> PrepararEnvioAsync(
+            string eventoCodigo,
+            IEnumerable<string>? baseCc = null,
             IEnumerable<string>? jefeArea = null)
         {
-            var principal = (destinatarioPrincipal ?? Enumerable.Empty<string>()).ToList();
             var copiaBase = (baseCc ?? Enumerable.Empty<string>()).ToList();
             // El jefe del área no se consulta: lo trae quien envía, porque depende del solicitante.
             var jefes = (jefeArea ?? Enumerable.Empty<string>())
@@ -58,12 +63,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     _logger.LogWarning(
                         "El correo {Evento} no está en ga_correo_evento; se envía solo con los destinatarios base.",
                         eventoCodigo);
-                    return Armar(principal, copiaBase, null, true);
+                    return p => Armar(Lista(p), copiaBase, null, true);
                 }
 
                 // Apagado desde la configuración: no se envía y no hace falta leer sus reglas.
                 if (!evento.Active)
-                    return new CorreoSalidaEnvioDto { Enviar = false };
+                    return _ => new CorreoSalidaEnvioDto { Enviar = false };
 
                 // 2) Reglas vivas + activas del correo, con el código de su tipo (1 query).
                 var reglas = await (
@@ -82,7 +87,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                 ).ToListAsync();
 
                 if (reglas.Count == 0)
-                    return Armar(principal, copiaBase, null, evento.DestinatarioPrincipalActivo);
+                    return p => Armar(Lista(p), copiaBase, null, evento.DestinatarioPrincipalActivo);
 
                 // 3) Correos de los trabajadores referenciados (1 query).
                 var workerIds = reglas
@@ -187,16 +192,19 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
                     }
                 }
 
-                return Armar(principal, copiaBase, includes, evento.DestinatarioPrincipalActivo);
+                return p => Armar(Lista(p), copiaBase, includes, evento.DestinatarioPrincipalActivo);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
                     "Error resolviendo destinatarios configurados del correo {Evento}; se usa solo la base.",
                     eventoCodigo);
-                return Armar(principal, copiaBase, null, true);
+                return p => Armar(Lista(p), copiaBase, null, true);
             }
         }
+
+        private static List<string> Lista(IEnumerable<string>? correos) =>
+            (correos ?? Enumerable.Empty<string>()).ToList();
 
         /// <summary>
         /// Reparte los correos entre "Para" y "Copia": el principal va al Para (salvo que su

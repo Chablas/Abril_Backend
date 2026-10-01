@@ -10,11 +10,18 @@ namespace Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.In
     public interface IRecordatorioRendicionRepository
     {
         /// <summary>
-        /// Qué mes se está rindiendo hoy, hasta cuándo, y si hoy toca alguno de los dos
-        /// recordatorios. El plazo sale de <c>ga_rendicion_config</c> y los días hábiles se cuentan
-        /// contra los feriados de Configuración → Feriados.
+        /// Qué mes se está rindiendo el día <paramref name="hoy"/> (el anterior), hasta cuándo, y si
+        /// ese día toca alguno de los dos recordatorios. El cron pasa el día de hoy; el envío manual
+        /// de la Configuración, el que simula. El plazo sale de <c>ga_rendicion_config</c> y los días
+        /// hábiles se cuentan contra los feriados de Configuración → Feriados.
         /// </summary>
-        Task<RecordatorioVentanaDto> GetVentanaAsync();
+        Task<RecordatorioVentanaDto> GetVentanaAsync(DateOnly hoy);
+
+        /// <summary>
+        /// El interruptor del recordatorio (<c>ga_correo_evento.active</c>). Sin fila cuenta como
+        /// prendido, igual que al enviar: el resolver lo manda solo al destinatario principal.
+        /// </summary>
+        Task<bool> RecordatorioActivoAsync(string eventoCodigo);
 
         /// <summary>
         /// Trabajadores con salidas de ese periodo aptas para rendir y todavía sin rendir, con el

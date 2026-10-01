@@ -25,15 +25,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.In
 
         // ── Ventana ──────────────────────────────────────────────────────────
 
-        public async Task<RecordatorioVentanaDto> GetVentanaAsync()
+        public async Task<RecordatorioVentanaDto> GetVentanaAsync(DateOnly hoy)
         {
             using var ctx = _factory.CreateDbContext();
 
             // Trae feriados + el plazo configurado en 2 consultas y responde por cualquier mes.
             var calendario = await CalendarioNoLaborable.CargarAsync(ctx);
 
-            var hoy = MesAnteriorPeru.HoyPeru();
-            var (desde, hasta) = MesAnteriorPeru.Rango();
+            // El mes que se rinde es el anterior al de «hoy».
+            var anterior = new DateOnly(hoy.Year, hoy.Month, 1).AddMonths(-1);
+            var (desde, hasta) = MesAnteriorPeru.RangoDe(anterior.Year, anterior.Month);
 
             // La VENTANA, no el límite real de ese mes: los dos recordatorios avisan que se abre y
             // que se cierra el plazo de días hábiles, y ese aviso es mensual. Con un alcance
@@ -63,6 +64,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.RecordatoriosRendicion.In
                 DiasHabilesRestantes = DiasHabilesEntre(hoy, limite, calendario),
                 Momento              = momento,
             };
+        }
+
+        public async Task<bool> RecordatorioActivoAsync(string eventoCodigo)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await ctx.GaCorreoEvento
+                .Where(e => e.Codigo == eventoCodigo && e.State)
+                .Select(e => (bool?)e.Active)
+                .FirstOrDefaultAsync() ?? true;
         }
 
         /// <summary>

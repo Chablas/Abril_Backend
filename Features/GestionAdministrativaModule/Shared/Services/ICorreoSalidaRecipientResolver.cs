@@ -40,5 +40,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             IEnumerable<string>? destinatarioPrincipal = null,
             IEnumerable<string>? baseCc = null,
             IEnumerable<string>? jefeArea = null);
+
+        /// <summary>
+        /// Lo mismo que <see cref="ResolveEnvioAsync"/> para varios envíos del mismo correo que solo
+        /// cambian de destinatario principal (el recordatorio del plazo, uno por trabajador): lee la
+        /// configuración UNA vez y devuelve con qué armar cada envío a partir de su principal.
+        /// </summary>
+        Task<Func<IEnumerable<string>?, CorreoSalidaEnvioDto>> PrepararEnvioAsync(
+            string eventoCodigo,
+            IEnumerable<string>? baseCc = null,
+            IEnumerable<string>? jefeArea = null);
     }
 }

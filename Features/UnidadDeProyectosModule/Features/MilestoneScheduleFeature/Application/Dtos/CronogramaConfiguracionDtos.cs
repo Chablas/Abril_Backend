@@ -30,6 +30,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         public string Codigo { get; set; } = string.Empty;
         public string Nombre { get; set; } = string.Empty;
         public string? Descripcion { get; set; }
+        /// <summary>
+        /// El asunto con que sale (<c>CronogramaHitosAsuntos.Plantilla</c>), para buscarlo en
+        /// Enviados. Lo que cambia en cada envío va entre llaves.
+        /// </summary>
+        public string? Asunto { get; set; }
         /// <summary>Interruptor del correo: false = no se envía a nadie.</summary>
         public bool Active { get; set; }
         /// <summary>El destinatario que pone el sistema en cada envío (el residente). Null = no tiene.</summary>
@@ -92,6 +97,32 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         public int? WorkerId { get; set; }
         public int? RoleId { get; set; }
         public string? Correo { get; set; }
+    }
+
+    /// <summary>
+    /// Envío manual de un recordatorio, paso 1: qué saldría si el cron corriera el día elegido. No
+    /// envía nada.
+    /// </summary>
+    public class CronogramaRecordatorioSimulacionDto
+    {
+        /// <summary>false = ese día no sale ningún correo; <see cref="Motivo"/> dice por qué.</summary>
+        public bool SeEnvia { get; set; }
+        public string? Motivo { get; set; }
+        /// <summary>Cuántos correos salen (el de cronograma pendiente va uno por residente).</summary>
+        public int Correos { get; set; }
+        /// <summary>Los destinatarios de todos esos correos, sin repetir a nadie.</summary>
+        public List<string> Para { get; set; } = new();
+        public List<string> Copia { get; set; } = new();
+        public List<string> CopiaOculta { get; set; } = new();
+    }
+
+    /// <summary>Envío manual, paso 2: lo que salió.</summary>
+    public class CronogramaRecordatorioEnvioDto
+    {
+        public int Enviados { get; set; }
+        public int Fallidos { get; set; }
+        /// <summary>Solo cuando no salió nada: por qué.</summary>
+        public string? Motivo { get; set; }
     }
 
     /// <summary>Lo que devuelve el repositorio al agregar o editar un destinatario.</summary>

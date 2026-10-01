@@ -22,13 +22,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
     public class CronogramaConfiguracionController : ControllerBase
     {
         private readonly ICronogramaConfiguracionService _service;
+        private readonly ICronogramaRecordatoriosService _recordatorios;
         private readonly ILogger<CronogramaConfiguracionController> _logger;
 
         public CronogramaConfiguracionController(
             ICronogramaConfiguracionService service,
+            ICronogramaRecordatoriosService recordatorios,
             ILogger<CronogramaConfiguracionController> logger)
         {
             _service = service;
+            _recordatorios = recordatorios;
             _logger = logger;
         }
 
@@ -79,6 +82,24 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         public Task<IActionResult> EliminarDestinatario(int id) =>
             Ejecutar(nameof(EliminarDestinatario), async () =>
                 Ok(await _service.EliminarDestinatarioAsync(id, UserId())));
+
+        /// <summary>
+        /// Envío manual de un recordatorio, paso 1: a quién le saldría si el cron corriera el día
+        /// <paramref name="fecha"/> (yyyy-MM-dd, hora de Perú). No envía nada.
+        /// </summary>
+        [HttpGet("correos/{codigo}/simulacion")]
+        public Task<IActionResult> Simular(string codigo, [FromQuery] DateOnly? fecha) =>
+            Ejecutar(nameof(Simular), async () =>
+                Ok(await _recordatorios.SimularAsync(codigo, Fecha(fecha))));
+
+        /// <summary>Paso 2: manda lo que saldría ese día. Si ese día no sale nada, no manda nada.</summary>
+        [HttpPost("correos/{codigo}/envio-manual")]
+        public Task<IActionResult> EnviarManual(string codigo, [FromQuery] DateOnly? fecha) =>
+            Ejecutar(nameof(EnviarManual), async () =>
+                Ok(await _recordatorios.EnviarManualAsync(codigo, Fecha(fecha))));
+
+        private static DateOnly Fecha(DateOnly? fecha) =>
+            fecha ?? throw new AbrilException("Elige el día a simular.", 400);
 
         /// <summary>
         /// Mismo manejo en todas las acciones: AbrilException conserva su código y su mensaje (la

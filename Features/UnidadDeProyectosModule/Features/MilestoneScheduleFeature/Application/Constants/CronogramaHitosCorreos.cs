@@ -12,6 +12,37 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         public const string CronogramaPendiente = "CRONOGRAMA_PENDIENTE";
         /// <summary>Día 1: las versiones que se subieron el mes anterior (Recordatorios).</summary>
         public const string ResumenMensual = "RESUMEN_MENSUAL";
+
+        /// <summary>Los que se pueden enviar a mano desde la Configuración, simulando un día.</summary>
+        public static readonly string[] Recordatorios = { CronogramaPendiente, ResumenMensual };
+    }
+
+    /// <summary>
+    /// Los asuntos de los correos del cronograma, en un solo lugar: los usa el envío, y la
+    /// Configuración los muestra bajo el nombre de cada correo para buscarlos en Enviados.
+    /// </summary>
+    public static class CronogramaHitosAsuntos
+    {
+        public const string VersionConCambios = "Cambios en el cronograma";
+
+        public const string CronogramaPendiente =
+            "🔔 Abril App Recordatorio: envío mensual de cronograma de hitos pendiente";
+
+        /// <param name="periodo">El mes que cerró, en palabras («septiembre 2026»).</param>
+        public static string ResumenMensual(string periodo) =>
+            $"📊 Reporte mensual: cambios en cronogramas — {periodo}";
+
+        /// <summary>
+        /// El asunto como lo muestra la Configuración: lo que cambia en cada envío va entre llaves
+        /// («{mes}»). Null = el correo no tiene asunto acá.
+        /// </summary>
+        public static string? Plantilla(string codigo) => codigo switch
+        {
+            CronogramaHitosCorreos.VersionConCambios => VersionConCambios,
+            CronogramaHitosCorreos.CronogramaPendiente => CronogramaPendiente,
+            CronogramaHitosCorreos.ResumenMensual => ResumenMensual("{mes}"),
+            _ => null,
+        };
     }
 
     /// <summary>Códigos de <c>milestone_schedule_correo_destinatario_tipo</c>.</summary>

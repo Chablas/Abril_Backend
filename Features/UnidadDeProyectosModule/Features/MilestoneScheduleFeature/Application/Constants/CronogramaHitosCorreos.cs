@@ -33,15 +33,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             $"📊 Reporte mensual: cambios en cronogramas — {periodo}";
 
         /// <summary>
-        /// El asunto como lo muestra la Configuración: lo que cambia en cada envío va entre llaves
-        /// («{mes}»). Null = el correo no tiene asunto acá.
+        /// Los asuntos como los muestra la Configuración: lo que cambia en cada envío va entre llaves
+        /// («{mes}»). Una lista, como en Gestión Administrativa, donde hay correos con dos asuntos.
+        /// Vacía = el correo no tiene asunto acá.
         /// </summary>
-        public static string? Plantilla(string codigo) => codigo switch
+        public static IReadOnlyList<string> Plantillas(string codigo) => codigo switch
         {
-            CronogramaHitosCorreos.VersionConCambios => VersionConCambios,
-            CronogramaHitosCorreos.CronogramaPendiente => CronogramaPendiente,
-            CronogramaHitosCorreos.ResumenMensual => ResumenMensual("{mes}"),
-            _ => null,
+            CronogramaHitosCorreos.VersionConCambios => new[] { VersionConCambios },
+            CronogramaHitosCorreos.CronogramaPendiente => new[] { CronogramaPendiente },
+            CronogramaHitosCorreos.ResumenMensual => new[] { ResumenMensual("{mes}") },
+            _ => Array.Empty<string>(),
         };
     }
 

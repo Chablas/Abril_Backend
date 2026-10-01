@@ -1418,7 +1418,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 var body    = SolicitudSalidaEmailTemplates.Aprobada(
                     SalidaEmailLayout.Desde(_configuration), datos,
                     SalidaEnlaces.Autoservicio(_configuration, info.Id));
-                var subject = $"Solicitud de salida {codigoSolicitud} APROBADA - {info.FechaSalida:dd/MM/yyyy}";
+                var subject = CorreoSalidaAsuntos.Aprobada(codigoSolicitud, info.FechaSalida);
 
                 await _emailService.SendAsync(
                     to: envio.Para,
@@ -1500,7 +1500,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 var body    = SolicitudSalidaEmailTemplates.Rechazada(
                     SalidaEmailLayout.Desde(_configuration), datos, info.MotivoRechazo,
                     SalidaEnlaces.Autoservicio(_configuration, info.Id));
-                var subject = $"Solicitud de salida {codigoSolicitud} RECHAZADA - {info.FechaSalida:dd/MM/yyyy}";
+                var subject = CorreoSalidaAsuntos.Rechazada(codigoSolicitud, info.FechaSalida);
 
                 await _emailService.SendAsync(
                     to: envio.Para,

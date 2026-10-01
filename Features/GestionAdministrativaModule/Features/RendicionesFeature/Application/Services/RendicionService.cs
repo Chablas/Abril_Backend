@@ -292,7 +292,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
 
                 await _emailService.SendAsync(
                     to: envio.Para,
-                    subject: $"Rendición por revisar - {datos.Codigo} - {datos.Trabajador}",
+                    subject: CorreoSalidaAsuntos.RendicionPorRevisar(datos.Codigo, datos.Trabajador),
                     body: body,
                     isHtml: true,
                     cc: envio.Copia.Count > 0 ? envio.Copia : null);
@@ -346,7 +346,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Rendiciones.Application.S
 
                 await _emailService.SendAsync(
                     to: envio.Para,
-                    subject: $"Tu rendición {datos.Codigo} está en revisión",
+                    subject: CorreoSalidaAsuntos.RendicionEnviada(datos.Codigo),
                     body: body,
                     isHtml: true,
                     cc: envio.Copia.Count > 0 ? envio.Copia : null);

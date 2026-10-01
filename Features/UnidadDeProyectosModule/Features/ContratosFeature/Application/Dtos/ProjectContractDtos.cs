@@ -77,6 +77,13 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
         public string? Observation { get; set; }
     }
 
+    public class ProjectContractMilestonePaymentDTO
+    {
+        public DateOnly? PaidDate { get; set; }
+        public string? ChequeRecibo { get; set; }
+        public string? Observation { get; set; }
+    }
+
     public class ProjectContractMilestoneDTO
     {
         public int ProjectContractMilestoneId { get; set; }
@@ -120,6 +127,15 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
         public bool Step6SignedJefeProyectos { get; set; }
         public bool Step6SignedGerenteInmobiliario { get; set; }
         public bool Step6SignedGerenteGeneral { get; set; }
+    }
+
+    // ── Paso 7 (escaneo del contrato firmado) ────────────────────────────────
+    public class ProjectContractScannedDocDTO
+    {
+        public int ProjectContractScannedDocId { get; set; }
+        public int Slot { get; set; }
+        public string? FileUrl { get; set; }
+        public string? OriginalFileName { get; set; }
     }
 
     // ── Generación del documento ─────────────────────────────────────────────

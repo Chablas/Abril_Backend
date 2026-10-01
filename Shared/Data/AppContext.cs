@@ -1657,6 +1657,16 @@ namespace Abril_Backend.Infrastructure.Data
             {
                 entity.Property(e => e.Order).HasColumnName("project_contract_milestone_order");
             });
+            modelBuilder.Entity<ProjectContract>(entity =>
+            {
+                // Seguro de última instancia ante concurrencia al asignar ContractNumber — el bloqueo
+                // FOR UPDATE en CreateAsync ya debería evitar duplicados, esto es el respaldo si algo
+                // se cuela igual. Parcial (WHERE NOT NULL) porque ContractNumber es nullable.
+                entity.HasIndex(e => new { e.ProjectId, e.ContractNumber })
+                      .IsUnique()
+                      .HasFilter("contract_number IS NOT NULL")
+                      .HasDatabaseName("ix_project_contract_project_id_contract_number");
+            });
             modelBuilder.Entity<AuditoriaCambio>(entity =>
             {
                 entity.Property(e => e.DatosAnteriores).HasColumnType("jsonb");

@@ -32,6 +32,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
 
         public async Task<SharePointUploadResultDto> UploadContractAsync(
             ProjectContractGenerationDataDTO data, string fileName, Stream content, string contentType)
+            => await UploadToSubfolderAsync(data, "Contrato", fileName, content, contentType);
+
+        public async Task<SharePointUploadResultDto> UploadScannedDocAsync(
+            ProjectContractGenerationDataDTO data, string fileName, Stream content, string contentType)
+            => await UploadToSubfolderAsync(data, "Escaneados", fileName, content, contentType);
+
+        /// <summary>Resuelve {CarpetaConfigurada}/{Especialidad}/{RUC - Razón social}/{CONTRATO N° X}/
+        /// y sube el archivo a la subcarpeta indicada dentro de ese árbol.</summary>
+        private async Task<SharePointUploadResultDto> UploadToSubfolderAsync(
+            ProjectContractGenerationDataDTO data, string subfolderName, string fileName, Stream content, string contentType)
         {
             if (string.IsNullOrWhiteSpace(data.WorkSpecialtyDescription))
                 throw new AbrilException(
@@ -51,7 +61,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
 
             var contratoFolderId = await EnsureContratoFolderAsync(raiz.DriveId, contratistaId, data);
 
-            var subfolderId = await FindOrCreateExactAsync(raiz.DriveId, contratoFolderId, "Contrato");
+            var subfolderId = await FindOrCreateExactAsync(raiz.DriveId, contratoFolderId, subfolderName);
 
             var result = await _graph.UploadToOneDriveFolderAsync(
                 raiz.DriveId, subfolderId, fileName, content, contentType, autoRenameOnLock: true)

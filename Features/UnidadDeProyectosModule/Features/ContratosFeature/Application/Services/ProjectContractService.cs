@@ -39,15 +39,76 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
         public Task<int> CreateAsync(ProjectContractCreateDTO dto, int userId)
             => _repository.CreateAsync(dto, userId);
 
-        public Task EditAsync(int projectContractId, ProjectContractEditDTO dto, int userId)
-            => _repository.EditAsync(projectContractId, dto, userId);
+        // ── Validación del paso actual ───────────────────────────────────────
+        // El orden de los pasos 1-9 se valida acá (capa de negocio), no en el repositorio.
+        // No se auto-avanza el status a 2/3 al editar datos o generar el documento — el
+        // contrato queda en 1 hasta que se llama paso4-enviar, que es quien lo mueve a 4.
+        // Edit/hitos/generar-contrato se permiten mientras status <= 5 (cubre 1 también).
 
-        public Task<ProjectContractMilestoneDTO> AddMilestoneAsync(
+        private static void RequireStatusAtMost(ProjectContractDTO contrato, int maxStatus, string accion)
+        {
+            if (contrato.ProjectContractStatusId > maxStatus)
+                throw new AbrilException(
+                    $"No se puede {accion}: el contrato ya pasó el paso {maxStatus} " +
+                    $"(está en el paso {contrato.ProjectContractStatusId} — {contrato.ProjectContractStatusDescription}).",
+                    400);
+        }
+
+        private static void RequireStatusIn(ProjectContractDTO contrato, string accion, params int[] permitidos)
+        {
+            if (!permitidos.Contains(contrato.ProjectContractStatusId))
+                throw new AbrilException(
+                    $"No se puede {accion} en el paso actual " +
+                    $"({contrato.ProjectContractStatusId} — {contrato.ProjectContractStatusDescription}).",
+                    400);
+        }
+
+        public async Task EditAsync(int projectContractId, ProjectContractEditDTO dto, int userId)
+        {
+            var contrato = await GetByIdAsync(projectContractId);
+            RequireStatusAtMost(contrato, 5, "editar el contrato");
+            await _repository.EditAsync(projectContractId, dto, userId);
+        }
+
+        public async Task<List<ProjectContractMilestoneDTO>> AddMilestoneAsync(
             int projectContractId, ProjectContractMilestoneCreateDTO dto, int userId)
-            => _repository.AddMilestoneAsync(projectContractId, dto, userId);
+        {
+            var contrato = await GetByIdAsync(projectContractId);
+            RequireStatusAtMost(contrato, 5, "agregar un hito");
 
-        public Task DeleteMilestoneAsync(int projectContractMilestoneId, int userId)
-            => _repository.DeleteMilestoneAsync(projectContractMilestoneId, userId);
+            var sumaActual = contrato.Milestones.Sum(m => m.Percentage);
+            if (sumaActual + dto.Percentage > 100)
+                throw new AbrilException(
+                    $"La suma de porcentajes de los hitos no puede superar 100% " +
+                    $"(actual: {sumaActual:0.##}%, nuevo: {dto.Percentage:0.##}%).", 400);
+
+            await _repository.AddMilestoneAsync(projectContractId, dto, userId);
+            return (await GetByIdAsync(projectContractId)).Milestones;
+        }
+
+        public async Task<List<ProjectContractMilestoneDTO>> DeleteMilestoneAsync(int projectContractMilestoneId, int userId)
+        {
+            var projectContractId = await _repository.GetProjectContractIdForMilestoneAsync(projectContractMilestoneId)
+                ?? throw new AbrilException("Hito no encontrado.", 404);
+
+            var contrato = await GetByIdAsync(projectContractId);
+            RequireStatusAtMost(contrato, 5, "eliminar un hito");
+
+            await _repository.DeleteMilestoneAsync(projectContractMilestoneId, userId);
+            return (await GetByIdAsync(projectContractId)).Milestones;
+        }
+
+        public async Task<ProjectContractMilestoneDTO> RegisterMilestonePaymentAsync(
+            int projectContractMilestoneId, ProjectContractMilestonePaymentDTO dto, int userId)
+        {
+            var projectContractId = await _repository.GetProjectContractIdForMilestoneAsync(projectContractMilestoneId)
+                ?? throw new AbrilException("Hito no encontrado.", 404);
+
+            await _repository.SetMilestonePaymentAsync(projectContractMilestoneId, dto, userId);
+
+            var actualizado = await GetByIdAsync(projectContractId);
+            return actualizado.Milestones.First(m => m.ProjectContractMilestoneId == projectContractMilestoneId);
+        }
 
         // ── Generación del documento (paso 3) ────────────────────────────────
 
@@ -88,6 +149,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
 
         public async Task<(byte[] Bytes, string FileName)> GenerateContractAsync(int projectContractId)
         {
+            RequireStatusAtMost(await GetByIdAsync(projectContractId), 5, "generar el contrato");
+
             var data = await _repository.GetGenerationDataAsync(projectContractId);
             ValidateGenerationData(data);
 
@@ -204,9 +267,13 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
 
         public async Task AdvanceToStep4Async(int projectContractId, bool skipNotification, int userId)
         {
+            var contrato = await GetByIdAsync(projectContractId);
+            RequireStatusAtMost(contrato, 3, "enviar el contrato al contratista");
+            if (contrato.Milestones.Count == 0)
+                throw new AbrilException("El contrato no tiene hitos de pago cargados todavía.", 400);
+
             if (!skipNotification)
             {
-                var contrato = await GetByIdAsync(projectContractId);
                 if (string.IsNullOrWhiteSpace(contrato.ContractorEmail))
                     throw new AbrilException(
                         "El contrato no tiene un correo de contratista registrado. " +
@@ -235,15 +302,50 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
             await _repository.SetStep4SentAsync(projectContractId, skipNotification, userId);
         }
 
-        public Task RegisterStep5ArrivalAsync(int projectContractId, ProjectContractStep5ArrivalDTO dto, int userId)
-            => _repository.SetStep5ArrivalAsync(projectContractId, dto, userId);
+        public async Task RegisterStep5ArrivalAsync(int projectContractId, ProjectContractStep5ArrivalDTO dto, int userId)
+        {
+            var contrato = await GetByIdAsync(projectContractId);
+            RequireStatusIn(contrato, "registrar la llegada a Oficina Central", 4, 5);
+            await _repository.SetStep5ArrivalAsync(projectContractId, dto, userId);
+        }
 
-        public Task UpdateStep6SignaturesAsync(int projectContractId, ProjectContractStep6SignaturesDTO dto, int userId)
-            => _repository.SetStep6SignaturesAsync(projectContractId, dto, userId);
+        public async Task UpdateStep6SignaturesAsync(int projectContractId, ProjectContractStep6SignaturesDTO dto, int userId)
+        {
+            var contrato = await GetByIdAsync(projectContractId);
+            RequireStatusIn(contrato, "registrar firmas", 5, 6);
+            await _repository.SetStep6SignaturesAsync(projectContractId, dto, userId);
+        }
+
+        public async Task<ProjectContractScannedDocDTO> UploadScannedDocAsync(
+            int projectContractId, int slot, string fileName, Stream content, string contentType, int userId)
+        {
+            if (slot is < 1 or > 3)
+                throw new AbrilException("El slot debe ser 1, 2 o 3.", 400);
+
+            var contrato = await GetByIdAsync(projectContractId);
+            RequireStatusIn(contrato, "subir el contrato firmado escaneado", 6, 7);
+
+            var data = await _repository.GetGenerationDataAsync(projectContractId);
+            var spResult = await _storage.UploadScannedDocAsync(data, fileName, content, contentType);
+
+            await _repository.SetScannedDocAsync(
+                projectContractId, slot, spResult.WebUrl!, spResult.FileName ?? fileName, spResult.ItemId, userId);
+
+            return new ProjectContractScannedDocDTO
+            {
+                Slot = slot,
+                FileUrl = spResult.WebUrl,
+                OriginalFileName = spResult.FileName ?? fileName
+            };
+        }
 
         public async Task NotifyStep8Async(int projectContractId, int userId)
         {
             var contrato = await GetByIdAsync(projectContractId);
+            RequireStatusIn(contrato, "notificar a Unidad de Proyectos", 7);
+            if (!contrato.Step6SignedJefeProyectos || !contrato.Step6SignedGerenteInmobiliario || !contrato.Step6SignedGerenteGeneral)
+                throw new AbrilException(
+                    "No se puede notificar: todavía faltan firmas (Jefe de Proyectos, Gerente Inmobiliario o Gerente General).", 400);
 
             await _emailService.SendAsync(
                 to: new List<string> { CorreoUnidadDeProyectos },
@@ -255,7 +357,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
             await _repository.SetStep8NotifiedAsync(projectContractId, userId);
         }
 
-        public Task CloseStep9Async(int projectContractId, int userId)
-            => _repository.SetStep9ClosedAsync(projectContractId, userId);
+        public async Task CloseStep9Async(int projectContractId, int userId)
+        {
+            var contrato = await GetByIdAsync(projectContractId);
+            RequireStatusIn(contrato, "cerrar el contrato", 8);
+            await _repository.SetStep9ClosedAsync(projectContractId, userId);
+        }
     }
 }

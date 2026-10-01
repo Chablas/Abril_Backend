@@ -11,7 +11,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
 {
     [ApiController]
     [Route("api/v1/[controller]")]
-    [RequireFeature(ContratosFeatures.Ver)]
+    // Editar implica ver: el script de roles (Migrations/Manual/20260929_ContratosFeatureRoles.sql)
+    // solo asignó ".editar" a los 4 roles habilitados — si solo pidiéramos Ver acá, esos roles no
+    // podrían ni abrir la pantalla. RequireFeature acepta varias claves en OR.
+    [RequireFeature(ContratosFeatures.Ver, ContratosFeatures.Editar)]
     public class ProjectContractController : ControllerBase
     {
         private readonly IProjectContractService _service;
@@ -166,8 +169,31 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
             try
             {
                 var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-                await _service.DeleteMilestoneAsync(projectContractMilestoneId, userId);
-                return Ok(new { message = "Hito eliminado exitosamente." });
+                var result = await _service.DeleteMilestoneAsync(projectContractMilestoneId, userId);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
+
+        /// <summary>Registra el pago (fecha/cheque-recibo/observación) de un hito ya creado.</summary>
+        [Authorize]
+        [RequireFeature(ContratosFeatures.Editar)]
+        [HttpPatch("hitos/{projectContractMilestoneId:int}/pago")]
+        public async Task<IActionResult> RegisterMilestonePayment(
+            int projectContractMilestoneId, [FromBody] ProjectContractMilestonePaymentDTO dto)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _service.RegisterMilestonePaymentAsync(projectContractMilestoneId, dto, userId);
+                return Ok(result);
             }
             catch (AbrilException ex)
             {
@@ -190,6 +216,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
             {
                 var (bytes, fileName) = await _service.GenerateContractAsync(projectContractId);
                 const string docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+                // Sin esto el navegador no deja leer Content-Disposition desde JS (CORS) y el
+                // frontend no puede recuperar el nombre real del archivo — mismo fix que
+                // GestionSalidaController.
+                Response.Headers.Append("Access-Control-Expose-Headers", "Content-Disposition");
+
                 return File(bytes, docxMime, fileName);
             }
             catch (AbrilException ex)
@@ -273,9 +305,33 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
             }
         }
 
-        // NOTA: paso 7 (contrato firmado escaneado) queda pendiente — depende de la decisión de
-        // almacenamiento (punto 3 de los pendientes de este módulo). La tabla ProjectContractScannedDoc
-        // ya existe, falta el endpoint de subida cuando se resuelva dónde se guardan los archivos.
+        /// <summary>Paso 7: sube el contrato firmado escaneado (slot 1, 2 o 3). Avanza a estado 7.</summary>
+        [Authorize]
+        [RequireFeature(ContratosFeatures.Editar)]
+        [HttpPost("{projectContractId:int}/paso7-escaneo/{slot:int}")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadScannedDoc(int projectContractId, int slot, IFormFile file)
+        {
+            try
+            {
+                if (file == null || file.Length == 0)
+                    return BadRequest(new { message = "Debe adjuntar un archivo." });
+
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                using var stream = file.OpenReadStream();
+                var result = await _service.UploadScannedDocAsync(
+                    projectContractId, slot, file.FileName, stream, file.ContentType, userId);
+                return Ok(result);
+            }
+            catch (AbrilException ex)
+            {
+                return StatusCode(ex.StatusCode, new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." });
+            }
+        }
 
         /// <summary>Paso 8: notifica al correo de Unidad de Proyectos que el contrato ya está firmado.</summary>
         [Authorize]

@@ -10,6 +10,11 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
         Task EditAsync(int projectContractId, ProjectContractEditDTO dto, int userId);
         Task<ProjectContractMilestoneDTO> AddMilestoneAsync(int projectContractId, ProjectContractMilestoneCreateDTO dto, int userId);
         Task DeleteMilestoneAsync(int projectContractMilestoneId, int userId);
+        Task SetMilestonePaymentAsync(int projectContractMilestoneId, ProjectContractMilestonePaymentDTO dto, int userId);
+        /// <summary>Contrato dueño de un hito — null si el hito no existe. Para validar el paso
+        /// actual del contrato antes de editar/eliminar un hito, y para saber a qué contrato
+        /// pertenece un hito dado solo su id.</summary>
+        Task<int?> GetProjectContractIdForMilestoneAsync(int projectContractMilestoneId);
 
         /// <summary>Datos crudos de un contrato + sus hitos, tal como los necesita el merge de la
         /// plantilla .docx (WordTemplateHelper) — no es un DTO de presentación.</summary>
@@ -24,6 +29,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
         Task SetStep6SignaturesAsync(int projectContractId, ProjectContractStep6SignaturesDTO dto, int userId);
         Task SetStep8NotifiedAsync(int projectContractId, int userId);
         Task SetStep9ClosedAsync(int projectContractId, int userId);
+        /// <summary>Paso 7: registra el escaneo del contrato firmado en el slot indicado y avanza
+        /// el estado a 7 (solo si todavía no llegó más lejos, mismo criterio que el paso 6).</summary>
+        Task SetScannedDocAsync(int projectContractId, int slot, string fileUrl, string originalFileName, string? storageItemId, int userId);
 
         // ── Almacenamiento (SharePoint) ──────────────────────────────────────
         /// <summary>Persiste el nombre de carpeta recién asignado ("CONTRATO N° X") — solo se

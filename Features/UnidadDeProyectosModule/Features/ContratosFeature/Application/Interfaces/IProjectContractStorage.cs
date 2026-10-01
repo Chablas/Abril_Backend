@@ -12,5 +12,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
     {
         Task<SharePointUploadResultDto> UploadContractAsync(
             ProjectContractGenerationDataDTO data, string fileName, Stream content, string contentType);
+
+        /// <summary>Paso 7: sube el contrato firmado escaneado a la subcarpeta "Escaneados" de la
+        /// misma carpeta del contrato (mismo árbol que UploadContractAsync).</summary>
+        Task<SharePointUploadResultDto> UploadScannedDocAsync(
+            ProjectContractGenerationDataDTO data, string fileName, Stream content, string contentType);
     }
 }

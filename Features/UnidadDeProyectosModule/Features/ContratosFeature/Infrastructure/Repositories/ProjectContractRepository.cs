@@ -146,12 +146,34 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
         {
             using var ctx = _factory.CreateDbContext();
 
+            // ContractNumber se asigna acá (al crear, no al generar): correlativo POR PROYECTO,
+            // sin reiniciar por año (el año de la plantilla {{NUM_CONTRATO}} sale de SigningDate,
+            // que puede no existir todavía al crear — mezclar "por año" complicaría el correlativo
+            // sin aportar nada, ya que el AÑO visible en el documento ya lo pone el año de firma).
+            //
+            // Seguridad ante concurrencia: se bloquea la fila de `project` (FOR UPDATE) ANTES de
+            // calcular el MAX — así dos creaciones simultáneas del mismo proyecto se serializan.
+            // No alcanza con bloquear filas de project_contract: si es el primer contrato del
+            // proyecto no hay ninguna fila que bloquear todavía. El índice único parcial
+            // (project_id, contract_number) agregado en la migración es el seguro de última
+            // instancia por si algo se cuela igual.
+            await using var tx = await ctx.Database.BeginTransactionAsync();
+
+            await ctx.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT project_id FROM project WHERE project_id = {dto.ProjectId} FOR UPDATE");
+
+            var maxNumber = await ctx.ProjectContract
+                .Where(c => c.ProjectId == dto.ProjectId)
+                .Select(c => (int?)c.ContractNumber)
+                .MaxAsync() ?? 0;
+
             var nuevo = new ProjectContract
             {
                 ProjectId = dto.ProjectId,
                 ContributorId = dto.ContributorId,
                 WorkSpecialtyId = dto.WorkSpecialtyId,
                 ProjectContractStatusId = 1, // Paso 1: Cotización/comparativo
+                ContractNumber = maxNumber + 1,
                 ServiceDescription = dto.ServiceDescription,
                 Amount = dto.Amount,
                 CurrencyId = dto.CurrencyId,
@@ -169,6 +191,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
 
             ctx.ProjectContract.Add(nuevo);
             await ctx.SaveChangesAsync();
+            await tx.CommitAsync();
+
             return nuevo.ProjectContractId;
         }
 
@@ -253,6 +277,32 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
             hito.UpdatedDateTime = DateTime.UtcNow;
             hito.UpdatedUserId = userId;
             await ctx.SaveChangesAsync();
+        }
+
+        public async Task SetMilestonePaymentAsync(int projectContractMilestoneId, ProjectContractMilestonePaymentDTO dto, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var hito = await ctx.ProjectContractMilestone
+                .FirstOrDefaultAsync(m => m.ProjectContractMilestoneId == projectContractMilestoneId && m.State)
+                ?? throw new AbrilException("Hito no encontrado.", 404);
+
+            hito.PaidDate = dto.PaidDate;
+            hito.ChequeRecibo = dto.ChequeRecibo;
+            hito.Observation = dto.Observation;
+            hito.UpdatedDateTime = DateTime.UtcNow;
+            hito.UpdatedUserId = userId;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task<int?> GetProjectContractIdForMilestoneAsync(int projectContractMilestoneId)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            return await ctx.ProjectContractMilestone
+                .Where(m => m.ProjectContractMilestoneId == projectContractMilestoneId && m.State)
+                .Select(m => (int?)m.ProjectContractId)
+                .FirstOrDefaultAsync();
         }
 
         public async Task<ProjectContractGenerationDataDTO> GetGenerationDataAsync(int projectContractId)
@@ -412,6 +462,48 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.ContratosFeatu
             contrato.ContractFileUrl = fileUrl;
             contrato.ContractOriginalFileName = originalFileName;
             contrato.ContractStorageItemId = storageItemId;
+            await ctx.SaveChangesAsync();
+        }
+
+        public async Task SetScannedDocAsync(
+            int projectContractId, int slot, string fileUrl, string originalFileName, string? storageItemId, int userId)
+        {
+            using var ctx = _factory.CreateDbContext();
+            var contrato = await GetContratoOrThrowAsync(ctx, projectContractId);
+
+            var existente = await ctx.ProjectContractScannedDoc
+                .FirstOrDefaultAsync(d => d.ProjectContractId == projectContractId && d.Slot == slot && d.State);
+
+            if (existente != null)
+            {
+                existente.FileUrl = fileUrl;
+                existente.OriginalFileName = originalFileName;
+                existente.StorageItemId = storageItemId;
+                existente.UpdatedDateTime = DateTime.UtcNow;
+                existente.UpdatedUserId = userId;
+            }
+            else
+            {
+                ctx.ProjectContractScannedDoc.Add(new ProjectContractScannedDoc
+                {
+                    ProjectContractId = projectContractId,
+                    Slot = slot,
+                    FileUrl = fileUrl,
+                    OriginalFileName = originalFileName,
+                    StorageItemId = storageItemId,
+                    Active = true,
+                    State = true,
+                    CreatedDateTime = DateTime.UtcNow,
+                    CreatedUserId = userId
+                });
+            }
+
+            // Solo avanza el status si todavía no llegó más lejos (mismo criterio que el paso 6).
+            if (contrato.ProjectContractStatusId < 7)
+                contrato.ProjectContractStatusId = 7;
+            contrato.UpdatedDateTime = DateTime.UtcNow;
+            contrato.UpdatedUserId = userId;
+
             await ctx.SaveChangesAsync();
         }
     }

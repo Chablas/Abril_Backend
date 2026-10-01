@@ -9,10 +9,15 @@ public interface IAtsRepository
     Task<(int? PuestoId, int? ProyectoActualId)> GetPuestoYProyectoActual(int workerId);
 
     /// <summary>Todo lo que necesita "Nuevo ATS" (y la administración de plantillas/pasos) en un
-    /// solo viaje a la BD: puesto y proyecto actual del trabajador, proyectos, pasos de su puesto,
-    /// peligros con riesgos, EPP, herramientas, plantillas, plantilla sugerida y consentimiento.</summary>
-    Task<AtsInitDto> GetInit(int workerId);
+    /// solo viaje a la BD: puesto y proyecto actual del trabajador, proyectos, puestos, pasos de su
+    /// puesto, peligros con riesgos, EPP, herramientas, plantillas, plantilla sugerida y
+    /// consentimiento. esStaff decide los pasos igual que en <see cref="GetPasosParaPuesto"/>.</summary>
+    Task<AtsInitDto> GetInit(int workerId, bool esStaff);
 
+    /// <summary>esStaff = el trabajador que llena el ATS es Staff u Oficina Central — solo entonces
+    /// se incluyen "Trabajos de gabinete" y "Supervisión y liberación en campo" (CategoriasUniversales),
+    /// que son checklist de supervisión/oficina y no le corresponden a un obrero de cuadrilla.</summary>
+    Task<List<AtsCategoriaPasoDto>> GetPasosParaPuesto(int? puestoId, bool esStaff);
     Task<AtsPasoDto> CrearPasoPersonalizado(int categoriaId, string texto);
     Task<List<AtsPeligroDto>> GetPeligrosConRiesgos();
 
@@ -56,9 +61,25 @@ public interface IAtsRepository
     /// puesto, no hay un campo dedicado como el de Residente) — también puede Autorizar.</summary>
     Task<bool> EsProduccionDeProyecto(int workerId, int proyectoId);
 
+    /// <summary>Capataz o Maestro de obra vinculado ACTUALMENTE a ese proyecto (por puesto, mismo
+    /// patrón que EsProduccionDeProyecto) — puede firmar el primer nivel de la cadena.</summary>
+    Task<bool> EsCapatazDeProyecto(int workerId, int proyectoId);
+
+    /// <summary>true si el ejecutante del ATS es obrero de obra (no Staff/Oficina Central) — de
+    /// esto depende si se exige la firma de Capataz.</summary>
+    Task<bool> EsObreroDeObra(int workerId);
+
     /// <summary>Cualquier prevencionista de Abril (puesto "Prevencionista", ContrataCasa="Casa"),
     /// sin importar el proyecto — puede dar Visto Bueno SSOMA en cualquier ATS que no sea el suyo.</summary>
     Task<bool> EsPrevencionistaAbril(int workerId);
+
+    // ── Cuenta propia para Capataz / Maestro de obra ────────────────────────
+    Task<bool> EsCapatazOMaestro(int workerId);
+    Task<string?> GetEmailPersonalAutorizacion(int workerId);
+    Task GuardarEmailPersonalAutorizacion(int workerId, string email);
+    Task<bool> TieneUsuario(int workerId);
+    Task<int?> GetRoleIdCapataz();
+    Task<(string Dni, string Nombres, string ApellidoPaterno, string ApellidoMaterno, int? Telefono)?> GetDatosPersonaParaCuenta(int workerId);
 
     Task<string?> GetEmailDeUsuario(int userId);
     Task<string?> GetEmailCorporativoWorker(int workerId);
@@ -66,10 +87,10 @@ public interface IAtsRepository
     Task<(string Nombre, string? Dni)> GetNombreYDni(int workerId);
 
     /// <summary>Nombre completo y puesto (cargo) de un worker — usado para snapshotear quién firmó
-    /// como "Autoriza" o "Visto Bueno SSOMA".</summary>
+    /// como "Capataz", "Autoriza" o "Visto Bueno SSOMA".</summary>
     Task<(string Nombre, string? Cargo)> GetNombreYCargo(int workerId);
 
-    /// <summary>"Autoriza" o "Ssoma" — cuál de las dos firmas adicionales se está registrando.</summary>
+    /// <summary>"Capataz", "Autoriza" o "Ssoma" — cuál de las firmas adicionales se está registrando.</summary>
     Task FirmarVisto(int atsId, string rol, int workerId, string nombre, string? cargo, string firmaUrl, string firmaHash, DateTime horaServidor);
 
     Task GuardarPdf(int id, string pdfUrl, string pdfHash);
@@ -101,4 +122,29 @@ public interface IAtsRepository
     Task<int> CrearControl(int riesgoId, string texto, string tipo);
     Task EditarControl(int controlId, string texto, string tipo);
     Task EliminarControl(int controlId);
+
+    // ── ATS Grupal ────────────────────────────────────────────────────────
+    Task<SsAtsGrupo> CrearGrupo(int creadoPorWorkerId, AtsGuardarRequestDto dto);
+    Task<SsAtsGrupo?> GetGrupoPorToken(Guid token);
+    Task<SsAtsGrupo?> GetGrupoEntidad(int id);
+    Task<AtsGrupoEstadoDto?> GetEstadoGrupo(int id);
+    Task<bool> EsAutorDeGrupo(int atsGrupoId, int workerId);
+    Task CerrarGrupo(int atsGrupoId);
+    Task<List<AtsGrupoWorkerOpcionDto>> GetWorkersParaAdhesion(int proyectoId);
+    Task<bool> DniCoincide(int workerId, string ultimosDigitos);
+
+    /// <summary>Crea el ATS individual de este trabajador COPIANDO el contenido ya snapshoteado
+    /// del grupo (no vuelve a resolver el catálogo) — deja Estado="Borrador", listo para que el
+    /// servicio llame a Firmar() inmediatamente después, igual que el flujo individual normal.</summary>
+    Task<int> CrearDesdeGrupo(int workerId, SsAtsGrupo grupo);
+
+    // ── QR fijo por proyecto (crear ATS Grupal sin login) ───────────────────
+    Task<Guid> GetOrCrearTokenProyecto(int proyectoId);
+    Task<int?> GetProyectoPorTokenCrear(Guid token);
+    Task<string?> GetProyectoNombre(int proyectoId);
+
+    // ── Firma única del Capataz por cuadrilla (link público) ────────────────
+    Task<List<AtsGrupoWorkerOpcionDto>> GetCapatacesDeProyecto(int proyectoId);
+    Task FirmarCapatazGrupo(int grupoId, int workerId, string nombre, string? cargo, string firmaUrl, string firmaHash, DateTime horaServidor,
+        string? selfieUrl, string? selfieHash, decimal? lat, decimal? lng, decimal? precisionMetros, DateTime? horaDispositivo);
 }

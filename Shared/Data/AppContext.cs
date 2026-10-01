@@ -262,7 +262,13 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsEppSeleccionado> SsAtsEppSeleccionado => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsEppSeleccionado>();
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsHerramientaSeleccionada> SsAtsHerramientaSeleccionada => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsHerramientaSeleccionada>();
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsRiesgoDetalle> SsAtsRiesgoDetalle => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsRiesgoDetalle>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupo> SsAtsGrupo => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupo>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupoPasoSeleccionado> SsAtsGrupoPasoSeleccionado => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupoPasoSeleccionado>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupoEppSeleccionado> SsAtsGrupoEppSeleccionado => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupoEppSeleccionado>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupoHerramientaSeleccionada> SsAtsGrupoHerramientaSeleccionada => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupoHerramientaSeleccionada>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupoRiesgoDetalle> SsAtsGrupoRiesgoDetalle => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupoRiesgoDetalle>();
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsAuditLog> SsAtsAuditLog => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsAuditLog>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsProyectoQr> SsAtsProyectoQr => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsProyectoQr>();
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsConsentimiento> SsAtsConsentimiento => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsConsentimiento>();
 
         // PETAR — Permiso Escrito de Trabajo de Alto Riesgo (PetarFeature)
@@ -272,6 +278,8 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.SsomaModule.PetarFeature.Infrastructure.Models.SsPetarItemRespuesta> SsPetarItemRespuesta => Set<Abril_Backend.Features.SsomaModule.PetarFeature.Infrastructure.Models.SsPetarItemRespuesta>();
         public DbSet<Abril_Backend.Features.SsomaModule.PetarFeature.Infrastructure.Models.SsPetarAuditLog> SsPetarAuditLog => Set<Abril_Backend.Features.SsomaModule.PetarFeature.Infrastructure.Models.SsPetarAuditLog>();
         public DbSet<Abril_Backend.Features.SsomaModule.PetarFeature.Infrastructure.Models.SsPetarIzajeGrua> SsPetarIzajeGrua => Set<Abril_Backend.Features.SsomaModule.PetarFeature.Infrastructure.Models.SsPetarIzajeGrua>();
+        public DbSet<Abril_Backend.Features.SsomaModule.PetarFeature.Infrastructure.Models.SsPetarGrupo> SsPetarGrupo => Set<Abril_Backend.Features.SsomaModule.PetarFeature.Infrastructure.Models.SsPetarGrupo>();
+        public DbSet<Abril_Backend.Features.SsomaModule.PetarFeature.Infrastructure.Models.SsPetarGrupoItemRespuesta> SsPetarGrupoItemRespuesta => Set<Abril_Backend.Features.SsomaModule.PetarFeature.Infrastructure.Models.SsPetarGrupoItemRespuesta>();
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsAutorizacionPermiso> SsAtsAutorizacionPermiso => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsAutorizacionPermiso>();
         public DbSet<SsItemTrabajadorRegla> SsItemTrabajadorRegla => Set<SsItemTrabajadorRegla>();
         public DbSet<SsHabBloqueoLog> SsHabBloqueoLog => Set<SsHabBloqueoLog>();

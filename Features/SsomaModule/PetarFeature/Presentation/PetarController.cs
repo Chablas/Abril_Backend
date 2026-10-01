@@ -38,6 +38,14 @@ namespace Abril_Backend.Features.SsomaModule.PetarFeature.Presentation
             return roleIds.Contains(Roles.AdministradorSistema) || roleIds.Contains(Roles.AdministradorSsoma);
         }
 
+        [HttpGet("tipos-catalogo")]
+        public async Task<IActionResult> GetTiposCatalogo()
+        {
+            try { return Ok(await _service.GetTiposCatalogo()); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.GetTiposCatalogo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("init/{atsId:int}")]
         public async Task<IActionResult> GetInit(int atsId)
         {
@@ -168,6 +176,108 @@ namespace Abril_Backend.Features.SsomaModule.PetarFeature.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.GetPdf"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // ── PETAR Grupal ────────────────────────────────────────────────────
+
+        [HttpPost("grupo")]
+        public async Task<IActionResult> CrearGrupo([FromBody] PetarGrupoCrearRequestDto dto)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                return Ok(await _service.CrearGrupo(workerId, dto));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.CrearGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("grupo/por-ats-grupo/{atsGrupoId:int}")]
+        public async Task<IActionResult> GetEstadosPorAtsGrupo(int atsGrupoId)
+        {
+            try
+            {
+                var userId = CurrentUserId();
+                var workerId = await _service.ResolverWorkerId(userId);
+                return Ok(await _service.GetEstadosPorAtsGrupo(atsGrupoId, userId, workerId, EsAdmin()));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.GetEstadosPorAtsGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("grupo/{id:int}/estado")]
+        public async Task<IActionResult> GetEstadoGrupo(int id)
+        {
+            try
+            {
+                var userId = CurrentUserId();
+                var workerId = await _service.ResolverWorkerId(userId);
+                return Ok(await _service.GetEstadoGrupo(id, userId, workerId, EsAdmin()));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.GetEstadoGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("grupo/{id:int}/cerrar")]
+        public async Task<IActionResult> CerrarGrupo(int id)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                await _service.CerrarGrupo(id, workerId, EsAdmin());
+                return Ok(new { message = "PETAR grupal cerrado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.CerrarGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("grupo/{id:int}/firmar-supervisor")]
+        public async Task<IActionResult> FirmarSupervisorGrupo(int id, [FromBody] PetarFirmarVistoRequestDto body)
+        {
+            try
+            {
+                await _service.FirmarSupervisorGrupo(id, CurrentUserId(), EsAdmin(), body);
+                return Ok(new { message = "Firmado como Supervisor/Responsable para todo el grupo." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.FirmarSupervisorGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("grupo/{id:int}/visto-bueno-ssoma")]
+        public async Task<IActionResult> FirmarSsomaGrupo(int id, [FromBody] PetarFirmarVistoRequestDto body)
+        {
+            try
+            {
+                await _service.FirmarSsomaGrupo(id, CurrentUserId(), EsAdmin(), body);
+                return Ok(new { message = "Visto bueno de SSOMA registrado para todo el grupo." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.FirmarSsomaGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // ── Página pública de adhesión (mismo QR/token del ATS grupal) ──────
+
+        [HttpGet("grupo/publico/por-ats-token/{atsToken:guid}")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetGruposPublicoPorAtsToken(Guid atsToken)
+        {
+            try { return Ok(await _service.GetGruposPublicoPorAtsToken(atsToken)); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.GetGruposPublicoPorAtsToken"); return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        [HttpPost("grupo/publico/{id:int}/unirse")]
+        [AllowAnonymous]
+        public async Task<IActionResult> UnirseAGrupo(int id, [FromBody] PetarGrupoUnirseRequestDto body)
+        {
+            try
+            {
+                var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var userAgent = Request.Headers.UserAgent.ToString();
+                var petarId = await _service.UnirseAGrupo(id, body, ip, userAgent);
+                return Ok(new { id = petarId, message = "PETAR firmado correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en PetarController.UnirseAGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
     }
 }

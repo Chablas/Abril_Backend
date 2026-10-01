@@ -22,7 +22,7 @@ namespace Abril_Backend.Features.Habilitacion.Presentation
         // CategoriaIds.cs). Ojo: ese rol lo usan también otras áreas sin permisos
         // especiales, así que cualquiera que lo tenga puede aprobar/rechazar estos
         // entregables de Calidad, no solo el área de Calidad.
-        private static readonly string[] RolesAprobadoresCalidad = [Roles.UsuarioDeAbril, Roles.AdministradorUdp];
+        private static readonly string[] RolesAprobadoresCalidad = [Roles.UsuarioDeAbril, Roles.AdministradorSsoma, Roles.AdministradorUdp];
 
         private readonly IHabTrabajadorRepository _repo;
         private readonly ILogger<HabTrabajadorController> _logger;

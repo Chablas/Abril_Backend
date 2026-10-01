@@ -883,36 +883,50 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
             var sctrItems = await ctx.SsItemTrabajador
                 .Where(i => i.EsSctrVidaley && i.Activo)
                 .ToListAsync();
+            var itemSctrId = sctrItems.FirstOrDefault(i => i.Nombre.Contains("SCTR", StringComparison.OrdinalIgnoreCase))?.Id;
+            var itemVidaLeyId = sctrItems.FirstOrDefault(i => i.Nombre.Contains("Vida", StringComparison.OrdinalIgnoreCase))?.Id;
+
+            // Todo el mapeo póliza->trabajadores en una sola consulta (antes: 1 query por póliza).
+            var polizaWorkers = await ctx.SsSctrVidaLeyWorker
+                .Where(w => polizaIds.Contains(w.SctrVidaLeyId))
+                .Select(w => new { w.SctrVidaLeyId, w.WorkerId })
+                .ToListAsync();
+
+            var relevantItemIds = new[] { itemSctrId, itemVidaLeyId }
+                .Where(i => i.HasValue).Select(i => i!.Value).ToList();
+            var todosLosWorkerIds = polizaWorkers.Select(w => w.WorkerId).Distinct().ToList();
+
+            // Todos los estados hab relevantes en una sola consulta (antes: 2 queries por póliza).
+            var habs = await ctx.SsHabTrabajador
+                .Where(h => todosLosWorkerIds.Contains(h.WorkerId) && relevantItemIds.Contains(h.ItemId))
+                .Select(h => new { h.WorkerId, h.ItemId, h.Estado })
+                .ToListAsync();
+            var habLookup = habs
+                .GroupBy(h => (h.WorkerId, h.ItemId))
+                .ToDictionary(g => g.Key, g => g.First().Estado);
+
+            var polizaWorkersLookup = polizaWorkers
+                .GroupBy(w => w.SctrVidaLeyId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.WorkerId).ToList());
 
             foreach (var poliza in polizas)
             {
-                var item = sctrItems.FirstOrDefault(i =>
-                    poliza.Tipo == "VIDA_LEY"
-                        ? i.Nombre.Contains("Vida", StringComparison.OrdinalIgnoreCase)
-                        : i.Nombre.Contains("SCTR", StringComparison.OrdinalIgnoreCase));
-                if (item is null) continue;
+                // "Rechazado" es un cierre definitivo (manual o por vencimiento) — si se
+                // recalculara igual que Enviado/En revision/Aprobado, aprobar cualquier otra
+                // póliza del mismo trabajador podía revivir un rechazo antiguo sin que nadie
+                // lo pidiera. Una vez Rechazado, queda Rechazado.
+                if (poliza.Estado == "Rechazado") continue;
 
-                var workersDePoliza = await ctx.SsSctrVidaLeyWorker
-                    .Where(w => w.SctrVidaLeyId == poliza.Id)
-                    .Select(w => w.WorkerId)
-                    .ToListAsync();
+                var itemId = poliza.Tipo == "VIDA_LEY" ? itemVidaLeyId : itemSctrId;
+                if (itemId is null) continue;
+                if (!polizaWorkersLookup.TryGetValue(poliza.Id, out var workersDePoliza) || workersDePoliza.Count == 0) continue;
 
-                if (workersDePoliza.Count == 0) continue;
+                var estados = workersDePoliza
+                    .Select(wId => habLookup.TryGetValue((wId, itemId.Value), out var est) ? est : null)
+                    .ToList();
 
-                var countEnviado = await ctx.SsHabTrabajador
-                    .Where(h => h.ItemId == item.Id
-                             && workersDePoliza.Contains(h.WorkerId)
-                             && h.Estado == "Enviado")
-                    .CountAsync();
-
-                var countEnRevision = await ctx.SsHabTrabajador
-                    .Where(h => h.ItemId == item.Id
-                             && workersDePoliza.Contains(h.WorkerId)
-                             && h.Estado == "En revision")
-                    .CountAsync();
-
-                poliza.Estado = countEnviado > 0 ? "Enviado"
-                              : countEnRevision > 0 ? "En revision"
+                poliza.Estado = estados.Any(e => e == "Enviado") ? "Enviado"
+                              : estados.Any(e => e == "En revision") ? "En revision"
                               : "Aprobado";
                 poliza.UpdatedAt = DateTime.UtcNow;
             }

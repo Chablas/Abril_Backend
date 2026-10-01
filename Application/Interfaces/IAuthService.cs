@@ -8,5 +8,6 @@ namespace Abril_Backend.Application.Interfaces
         Task<RefreshResponseDTO> Refresh(string sessionToken);
         Task SetPassword(SetPasswordDTO dto);
         Task ForgotPassword(ForgotPasswordDTO dto);
+        Task ForgotPasswordByEmail(string email);
     }
 }

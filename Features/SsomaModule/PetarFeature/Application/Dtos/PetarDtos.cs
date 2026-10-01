@@ -180,3 +180,72 @@ public class PetarListResponseDto
     public int TotalRecords { get; set; }
     public int TotalPages { get; set; }
 }
+
+// ── PETAR Grupal ─────────────────────────────────────────────────────────────
+
+/// <summary>Mismo checklist que PetarGuardarRequestDto, pero para toda la cuadrilla — nace de un
+/// ATS grupal (no de un AtsId individual) y puede haber varios por ATS grupal (ej. Altura Y
+/// Espacio Confinado el mismo día).</summary>
+public class PetarGrupoCrearRequestDto
+{
+    public int AtsGrupoId { get; set; }
+    public int TipoId { get; set; }
+    public string DescripcionTrabajo { get; set; } = string.Empty;
+    public string? Lugar { get; set; }
+    public string? HoraInicio { get; set; }
+    public string? HoraFin { get; set; }
+    public List<PetarItemRespuestaRequestDto> Respuestas { get; set; } = [];
+}
+
+public class PetarGrupoCrearResponseDto
+{
+    public int Id { get; set; }
+}
+
+/// <summary>Panel del autor: estado del checklist grupal y cuántos ejecutantes ya se adhirieron.</summary>
+public class PetarGrupoEstadoDto
+{
+    public int Id { get; set; }
+    public int ProyectoId { get; set; }
+    public string? TipoNombre { get; set; }
+    public string DescripcionTrabajo { get; set; } = string.Empty;
+    public string Estado { get; set; } = string.Empty;
+    public bool SupervisorFirmado { get; set; }
+    public bool SsomaFirmado { get; set; }
+    public bool PuedeFirmarSupervisor { get; set; }
+    public bool PuedeFirmarSsoma { get; set; }
+    public int TotalAdhesiones { get; set; }
+    public List<string> TrabajadoresAdheridos { get; set; } = [];
+}
+
+/// <summary>Lo que ve el trabajador en la página pública del QR (la misma del ATS grupal) para
+/// elegir cuáles PETAR le aplican a él — no todos en la cuadrilla hacen la misma tarea de alto
+/// riesgo.</summary>
+public class PetarGrupoResumenPublicoDto
+{
+    public int Id { get; set; }
+    public string? TipoNombre { get; set; }
+    public string DescripcionTrabajo { get; set; } = string.Empty;
+    public string? Lugar { get; set; }
+    public string? HoraInicio { get; set; }
+    public string? HoraFin { get; set; }
+    public List<PetarItemRespuestaResponseDto> Respuestas { get; set; } = [];
+}
+
+/// <summary>Adhesión liviana — mismo criterio que AtsGrupoUnirseRequestDto: sin login, el token
+/// del ATS grupal (ya validado en ese paso) es lo que habilita esto; acá solo se repite para
+/// confirmar que este PETAR puntual de verdad pertenece a ese mismo ATS grupal.</summary>
+public class PetarGrupoUnirseRequestDto
+{
+    public string AtsToken { get; set; } = string.Empty;
+    public int WorkerId { get; set; }
+    /// <summary>El id del propio SsAts de este trabajador, devuelto al adherirse al ATS grupal —
+    /// el PETAR individual se ancla ahí, igual que un PETAR nacido de un ATS normal.</summary>
+    public int AtsIdPropio { get; set; }
+    public string SelfieBase64 { get; set; } = string.Empty;
+    public string FirmaBase64 { get; set; } = string.Empty;
+    public DateTime? HoraDispositivo { get; set; }
+    public decimal? Lat { get; set; }
+    public decimal? Lng { get; set; }
+    public decimal? PrecisionMetros { get; set; }
+}

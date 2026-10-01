@@ -4,18 +4,12 @@ using Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Interfaces;
 using Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Interfaces;
 using Abril_Backend.Features.AuthModule.MicrosoftProfile.Application.Interfaces;
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Shared.Services.RolesPorFuncion.Interfaces;
 
 namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
 {
     public class MicrosoftLoginService : IMicrosoftLoginService
     {
-        /// <summary>
-        /// USUARIO REVISOR DE SALIDAS — espejo entero de
-        /// <see cref="Abril_Backend.Shared.Constants.Roles.UsuarioRevisorSalidas"/>, que es string porque
-        /// así viaja en el claim del JWT; acá se necesita el ID para asignar el user_role.
-        /// </summary>
-        private const int RoleIdUsuarioRevisorSalidas = 78;
-
         /// <summary>
         /// Mensaje del acceso denegado cuando ningún registro de <c>workers</c> tiene este correo
         /// en <c>email_corporativo</c>. Genérico a propósito: no dice si el correo existe en el
@@ -29,17 +23,20 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
         private readonly IMicrosoftLoginRepository _repository;
         private readonly IJWTService _jwtService;
         private readonly IAuthRepository _authRepository;
+        private readonly IRolesPorFuncionService _rolesPorFuncion;
 
         public MicrosoftLoginService(
             IMicrosoftProfileService profileService,
             IMicrosoftLoginRepository repository,
             IJWTService jwtService,
-            IAuthRepository authRepository)
+            IAuthRepository authRepository,
+            IRolesPorFuncionService rolesPorFuncion)
         {
             _profileService = profileService;
             _repository = repository;
             _jwtService = jwtService;
             _authRepository = authRepository;
+            _rolesPorFuncion = rolesPorFuncion;
         }
 
         public async Task<MicrosoftLoginResponseDto> Login(string graphAccessToken)
@@ -108,19 +105,17 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Application.Services
                                     user.Roles!.Add(rol);
                             }
                         }
-
-                        // Revisor de área (Revisores de Áreas): necesita entrar a Gestión de
-                        // Salidas para aprobar las solicitudes de su área. Buena parte de los
-                        // revisores designados no tenía usuario del sistema todavía, así que el
-                        // rol no se les pudo asignar por SQL; se les asigna acá, al crearse la
-                        // cuenta en su primer login.
-                        if (await _repository.IsAreaRevisorByPersonIdAsync(personId))
-                        {
-                            var rolRevisor = await _repository.AssignRoleAsync(user.UserId, RoleIdUsuarioRevisorSalidas);
-                            if (rolRevisor is not null && !user.Roles!.Any(r => r.RoleId == rolRevisor.RoleId))
-                                user.Roles!.Add(rolRevisor);
-                        }
                     }
+
+                    // Los roles de Gestión Administrativa que salen de lo que la persona hace: los de
+                    // su puesto (JEFE, SUB GERENTE, GERENTE, RESIDENTE, ADMINISTRADOR DE OBRA) y lo
+                    // que le toque por estar asignada a mano como aprobadora o consolidadora. Mucha
+                    // gente designada todavía no tiene usuario, así que no se le pudo dar por SQL: se
+                    // le da acá, al crearse la cuenta. Reemplaza al viejo USUARIO REVISOR DE SALIDAS.
+                    user.Roles ??= new();
+                    foreach (var rol in await _rolesPorFuncion.AsignarAlCrearCuentaAsync(user.UserId))
+                        if (!user.Roles.Any(r => r.RoleId == rol.RoleId))
+                            user.Roles.Add(rol);
                 }
             }
             else if (user.Person is null || user.Person.PersonId == 0)

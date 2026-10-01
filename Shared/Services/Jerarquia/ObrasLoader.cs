@@ -1,4 +1,5 @@
 using Abril_Backend.Infrastructure.Data;
+using Abril_Backend.Shared.Constants;
 using Abril_Backend.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,37 +22,49 @@ namespace Abril_Backend.Shared.Services.Jerarquia
     public static class ObrasLoader
     {
         /// <summary>
-        /// Identifica a OFICINA CENTRAL, que es una fila más de <c>project</c> sin bandera que la
-        /// distinga de una obra: la única salida es el nombre normalizado (en prod va en mayúsculas
-        /// y en dev como "Oficina Central"). Mismo criterio que usa el aviso de obra del Onboarding.
-        /// </summary>
-        private const string ProyectoOficinaCentral = "OFICINA CENTRAL";
-
-        /// <summary>
         /// Una obra de la que una persona está a cargo, y en qué papel. Puede ser las dos cosas a la
         /// vez, aunque en la práctica no pasa.
         /// </summary>
         public sealed record ObraACargo(int ProjectId, string Nombre, bool EsResidente, bool EsAdministrador);
 
         /// <summary>
-        /// Los proyectos vivos que son OBRAS: todos menos OFICINA CENTRAL, que tiene
-        /// <c>residente_workers_id</c> cargado y sin esta exclusión se llevaría a toda la oficina.
+        /// Los proyectos vivos que son OBRAS: los de tipo PROYECTO (edificios que se venden al
+        /// público). OFICINA CENTRAL, las áreas internas registradas como proyecto (Post Venta,
+        /// Arquitectura Comercial, Eventos), la FFT y el proyecto de prueba NO son obra: su gente es de
+        /// oficina central (ver <see cref="ObraVigentePorTrabajadorAsync"/>). Hasta el 2026-09-29 se
+        /// excluía solo OFICINA CENTRAL, por nombre, y a la gente de Post Venta y Arquitectura
+        /// Comercial la revisaba y consolidaba el «administrador de obra» de esas áreas.
+        ///
+        /// No es <c>project_tipo.es_obra</c>, que también marca FFT y Prueba: esa bandera la usan otras
+        /// pantallas, donde esos dos sí cuentan como obra.
         ///
         /// Va sin <c>AsNoTracking</c> para poder usarse también como subconsulta dentro de otra
         /// consulta (así lo usa la visibilidad); quienes la consumen proyectan, así que no se
         /// rastrea nada igual.
         /// </summary>
         public static IQueryable<Project> Obras(AppDbContext ctx) =>
-            ctx.Project.Where(p =>
-                p.State
-                && p.ProjectDescription != null
-                && p.ProjectDescription.ToUpper().Trim() != ProyectoOficinaCentral);
+            ctx.Project.Where(p => p.State && p.ProjectTipoId == ProjectTipoIds.Proyecto);
 
         /// <summary>
-        /// La obra vigente de cada trabajador: su vinculación con <c>fecha_fin</c> NULL y proyecto,
-        /// la más reciente por <c>created_at</c> y después por id (criterio de
+        /// El proyecto OFICINA CENTRAL (tipo OFICINA_CENTRAL; si hubiera más de uno, el activo de id
+        /// más bajo), o null si no existe.
+        /// </summary>
+        public static Task<int?> OficinaCentralAsync(AppDbContext ctx) =>
+            ctx.Project.AsNoTracking()
+                .Where(p => p.State && p.ProjectTipoId == ProjectTipoIds.OficinaCentral)
+                .OrderByDescending(p => p.Active)
+                .ThenBy(p => p.ProjectId)
+                .Select(p => (int?)p.ProjectId)
+                .FirstOrDefaultAsync();
+
+        /// <summary>
+        /// La ubicación vigente de cada trabajador: su vinculación con <c>fecha_fin</c> NULL y
+        /// proyecto, la más reciente por <c>created_at</c> y después por id (criterio de
         /// <c>HabTrabajadorRepository.LatestVincActiva</c>, que es lo que mantiene GTH con
-        /// "Cambiar obra / puesto de trabajo"). Un trabajador retirado no tiene vinculación vigente
+        /// "Cambiar obra / puesto de trabajo"). Si ese proyecto no es una obra (<see cref="Obras"/>:
+        /// un área interna, la FFT, el de prueba...), se lo ubica en OFICINA CENTRAL, como si su
+        /// vinculación dijera eso: así le toca lo personalizado para oficina central y el área no se
+        /// parte por un «proyecto» que no lo es. Un trabajador retirado no tiene vinculación vigente
         /// y no aparece en el diccionario.
         /// </summary>
         public static async Task<Dictionary<int, int?>> ObraVigentePorTrabajadorAsync(
@@ -60,16 +73,29 @@ namespace Abril_Backend.Shared.Services.Jerarquia
             var ids = workerIds as List<int> ?? workerIds.ToList();
             if (ids.Count == 0) return new Dictionary<int, int?>();
 
-            var vinculaciones = await ctx.WorkerVinculacion.AsNoTracking()
-                .Where(v => ids.Contains(v.WorkerId) && v.FechaFin == null && v.ProyectoId != null)
-                .OrderByDescending(v => v.CreatedAt)
-                .ThenByDescending(v => v.Id)
-                .Select(v => new { v.WorkerId, v.ProyectoId })
-                .ToListAsync();
+            var vinculaciones = await (
+                from v in ctx.WorkerVinculacion.AsNoTracking()
+                where ids.Contains(v.WorkerId) && v.FechaFin == null && v.ProyectoId != null
+                join p in ctx.Project.AsNoTracking() on v.ProyectoId equals p.ProjectId into pj
+                from p in pj.DefaultIfEmpty()
+                orderby v.CreatedAt descending, v.Id descending
+                select new
+                {
+                    v.WorkerId,
+                    v.ProyectoId,
+                    EsObra = p != null && p.State && p.ProjectTipoId == ProjectTipoIds.Proyecto,
+                }
+            ).ToListAsync();
 
-            return vinculaciones
+            var vigentes = vinculaciones
                 .GroupBy(v => v.WorkerId)
-                .ToDictionary(g => g.Key, g => g.First().ProyectoId);
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var oficinaCentral = vigentes.Values.Any(v => !v.EsObra) ? await OficinaCentralAsync(ctx) : null;
+
+            return vigentes.ToDictionary(
+                kv => kv.Key,
+                kv => kv.Value.EsObra ? kv.Value.ProyectoId : oficinaCentral ?? kv.Value.ProyectoId);
         }
 
         /// <summary>

@@ -42,11 +42,22 @@ public class AtsAutorizacionTrabajadorDto
     public bool TieneAutorizacion { get; set; }
     public DateTime? SubidoEn { get; set; }
     public string? ArchivoUrl { get; set; }
+    public bool EsCapatazOMaestro { get; set; }
+    public string? EmailPersonal { get; set; }
+    public bool TieneUsuario { get; set; }
 }
 
 public class AtsAutorizacionFirmaDigitalRequestDto
 {
     public string FirmaBase64 { get; set; } = string.Empty;
+}
+
+/// <summary>Correo personal del Capataz/Maestro de obra + aceptación de la declaración de uso
+/// personal y exclusivo (también impresa en el PDF de la autorización).</summary>
+public class AtsAutorizacionEmailRequestDto
+{
+    public string Email { get; set; } = string.Empty;
+    public bool AceptaDeclaracion { get; set; }
 }
 
 public class AtsCategoriaPasoDto
@@ -145,6 +156,11 @@ public class AtsInitDto
     public List<AtsProyectoDto> Proyectos { get; set; } = [];
     public int? ProyectoActualId { get; set; }
     public int? PuestoId { get; set; }
+    /// <summary>Catálogo completo de puestos activos — solo lo usa el wizard de ATS Grupal (ver
+    /// AtsNuevo.modoGrupal) para que el creador elija el puesto/tipo de trabajo de LA CUADRILLA
+    /// (no necesariamente el suyo propio) y así traer los pasos correctos vía
+    /// GetPasosPorPuesto, en vez de los pasos del puesto de quien crea el ATS.</summary>
+    public List<AtsPuestoDto> Puestos { get; set; } = [];
     public List<AtsCategoriaPasoDto> Pasos { get; set; } = [];
     public List<AtsPeligroDto> Peligros { get; set; } = [];
     public List<AtsEppDto> Epps { get; set; } = [];
@@ -270,6 +286,17 @@ public class AtsResponseDto
     public int? AtsAnteriorId { get; set; }
     public string? PdfHash { get; set; }
 
+    /// <summary>true si el ejecutante es obrero de obra — de esto depende si el PDF y el
+    /// wizard piden/muestran la firma de Capataz (ver AtsRepository.EsObreroDeObra).</summary>
+    public bool RequiereCapataz { get; set; }
+    /// <summary>Presente si este ATS nació de una cuadrilla (QR) — el Capataz firma UNA vez por grupo,
+    /// no por cada ATS (ver POST grupo/{id}/firmar-capataz).</summary>
+    public int? AtsGrupoId { get; set; }
+    public string? CapatazNombre { get; set; }
+    public string? CapatazCargo { get; set; }
+    public string? CapatazFirmaUrl { get; set; }
+    public DateTime? CapatazHoraServidor { get; set; }
+
     public string? AutorizaNombre { get; set; }
     public string? AutorizaCargo { get; set; }
     public string? AutorizaFirmaUrl { get; set; }
@@ -281,7 +308,11 @@ public class AtsResponseDto
     public DateTime? SsomaHoraServidor { get; set; }
 
     /// <summary>Se completan solo cuando GetPorId/Listar los pide para el usuario logueado
-    /// (ver AtsService) — el frontend los usa para mostrar u ocultar los botones de firma.</summary>
+    /// (ver AtsService) — el frontend los usa para mostrar u ocultar los botones de firma.
+    /// PuedeCapataz solo puede ser true cuando el ejecutante es obrero de obra (ver
+    /// AtsService.PuedeAutorizarYVistoBueno) — si el ejecutante ya es Staff, este nivel no aplica
+    /// y el botón nunca se muestra.</summary>
+    public bool PuedeCapataz { get; set; }
     public bool PuedeAutorizar { get; set; }
     public bool PuedeVistoBuenoSsoma { get; set; }
 
@@ -407,4 +438,139 @@ public class AtsRiesgoControlGuardarRequestDto
 {
     public string Texto { get; set; } = string.Empty;
     public string Tipo { get; set; } = "Administrativo";
+}
+
+// ── ATS Grupal (cuadrilla) ───────────────────────────────────────────────────
+
+/// <summary>Respuesta al crear un ATS grupal: el link/QR para que la cuadrilla se adhiera.</summary>
+public class AtsGrupoCrearResponseDto
+{
+    public int Id { get; set; }
+    public string QrToken { get; set; } = string.Empty;
+    public DateTime QrExpiraEn { get; set; }
+}
+
+/// <summary>Panel del autor: cuántos ya firmaron, para saber si falta alguien de la cuadrilla.</summary>
+public class AtsGrupoEstadoDto
+{
+    public int Id { get; set; }
+    public string Actividad { get; set; } = string.Empty;
+    public string? ProyectoNombre { get; set; }
+    public string? TorreNombre { get; set; }
+    public string? Pisos { get; set; }
+    public DateOnly Fecha { get; set; }
+    public string Estado { get; set; } = string.Empty;
+    public string QrToken { get; set; } = string.Empty;
+    public DateTime QrExpiraEn { get; set; }
+    public int TotalAdhesiones { get; set; }
+    public List<string> TrabajadoresAdheridos { get; set; } = [];
+
+    public string? CapatazNombre { get; set; }
+    public DateTime? CapatazHoraServidor { get; set; }
+    /// <summary>true = el Capataz firmó Y no se sumó nadie después. Si firmó pero hay más
+    /// adhesiones que las que había al firmar, queda false y CapatazNuevosSinValidar > 0.</summary>
+    public bool CapatazVigente { get; set; }
+    public int CapatazNuevosSinValidar { get; set; }
+}
+
+/// <summary>Página pública del Capataz (sin login, el token del grupo es el candado): ve cuántos y
+/// quiénes ya adhirieron antes de firmar — su firma certifica a esa lista, no a futuros.</summary>
+public class AtsGrupoCapatazPublicoDto
+{
+    public bool Valido { get; set; }
+    public string? MotivoInvalido { get; set; }
+    public string? ProyectoNombre { get; set; }
+    public string? Actividad { get; set; }
+    public List<string> TrabajadoresAdheridos { get; set; } = [];
+    public bool YaFirmo { get; set; }
+    public bool Vigente { get; set; }
+    public int NuevosSinValidar { get; set; }
+    public List<AtsGrupoWorkerOpcionDto> Capataces { get; set; } = [];
+}
+
+public class AtsGrupoCapatazFirmarRequestDto
+{
+    public int WorkerId { get; set; }
+    public string DniConfirmacion { get; set; } = string.Empty;
+    public string FirmaBase64 { get; set; } = string.Empty;
+    public string SelfieBase64 { get; set; } = string.Empty;
+    public DateTime? HoraDispositivo { get; set; }
+    public decimal? Lat { get; set; }
+    public decimal? Lng { get; set; }
+    public decimal? PrecisionMetros { get; set; }
+}
+
+/// <summary>Lo que ve el trabajador al escanear el QR, ANTES de identificarse — sin login, por
+/// eso no lleva nada sensible (ver AtsVerificacionPublicaDto, mismo criterio de exposición mínima).</summary>
+public class AtsGrupoResumenPublicoDto
+{
+    public bool Valido { get; set; }
+    public string? MotivoInvalido { get; set; }
+    public string? ProyectoNombre { get; set; }
+    public string? Actividad { get; set; }
+    public string? TorreNombre { get; set; }
+    public string? Pisos { get; set; }
+    public string? Lugar { get; set; }
+    public DateOnly? Fecha { get; set; }
+    public List<string> Epps { get; set; } = [];
+    public List<string> Herramientas { get; set; } = [];
+    public List<AtsRiesgoDetalleResponseDto> Riesgos { get; set; } = [];
+}
+
+/// <summary>Trabajador seleccionable en la página de adhesión — acotado al proyecto del grupo y
+/// a quienes ya tienen la autorización de firma digital (ver ExigirAutorizacionPermiso), para no
+/// dejar elegir a alguien que de todas formas no podría firmar.</summary>
+public class AtsGrupoWorkerOpcionDto
+{
+    public int WorkerId { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+    /// <summary>Últimos 4 dígitos únicamente — nunca se manda el DNI completo a esta pantalla sin
+    /// login, solo lo necesario para que el trabajador reconozca su propio nombre en la lista.</summary>
+    public string? DniUltimos4 { get; set; }
+}
+
+/// <summary>El trabajador confirma su identidad con los últimos dígitos de SU PROPIO DNI (no es
+/// una contraseña, es fricción mínima contra "elegir cualquier nombre de la lista") y firma en el
+/// mismo paso — no hay Borrador intermedio, entra directo Firmado.</summary>
+public class AtsGrupoUnirseRequestDto
+{
+    public int WorkerId { get; set; }
+    public string DniConfirmacion { get; set; } = string.Empty;
+    public string SelfieBase64 { get; set; } = string.Empty;
+    public string FirmaBase64 { get; set; } = string.Empty;
+    public DateTime? HoraDispositivo { get; set; }
+    public decimal? Lat { get; set; }
+    public decimal? Lng { get; set; }
+    public decimal? PrecisionMetros { get; set; }
+    public bool AceptaConsentimiento { get; set; }
+}
+
+// ── QR fijo por proyecto (crear ATS Grupal sin login) ────────────────────────
+
+/// <summary>Página pública que abre el QR de obra — sin login. A diferencia del resumen de
+/// adhesión, no hay contenido todavía (este QR es para CREAR un grupo, no para unirse a uno
+/// existente): solo valida el token y devuelve la lista de trabajadores del proyecto.</summary>
+public class AtsGrupoProyectoPublicoDto
+{
+    public bool Valido { get; set; }
+    public string? MotivoInvalido { get; set; }
+    public string? ProyectoNombre { get; set; }
+    public List<AtsGrupoWorkerOpcionDto> Trabajadores { get; set; } = [];
+}
+
+/// <summary>Identificación mínima (igual patrón que la adhesión) antes de pedir los catálogos del
+/// wizard — sin esto cualquiera podría ver pasos/EPP/herramientas de la obra sin ser parte de ella.</summary>
+public class AtsGrupoInitPublicoRequestDto
+{
+    public int WorkerId { get; set; }
+    public string DniConfirmacion { get; set; } = string.Empty;
+}
+
+/// <summary>Mismo candado (worker + DNI) envolviendo el contenido ya armado por el wizard — el
+/// ProyectoId que venga en Contenido se IGNORA, el servidor siempre usa el del token.</summary>
+public class AtsGrupoCrearPublicoRequestDto
+{
+    public int WorkerId { get; set; }
+    public string DniConfirmacion { get; set; } = string.Empty;
+    public AtsGuardarRequestDto Contenido { get; set; } = new();
 }

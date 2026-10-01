@@ -51,6 +51,8 @@ using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces;
 using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Services;
 using Abril_Backend.Shared.Services.Actores.Interfaces;
 using Abril_Backend.Shared.Services.Actores.Services;
+using Abril_Backend.Shared.Services.RolesPorFuncion.Interfaces;
+using Abril_Backend.Shared.Services.RolesPorFuncion.Services;
 using Abril_Backend.Shared.Services.Consolidadores.Interfaces;
 using Abril_Backend.Shared.Services.Consolidadores.Services;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
@@ -297,6 +299,11 @@ builder.Services.AddScoped<IConsolidadorResolver, ConsolidadorResolver>();
 // Escritura de lo personalizado por trabajador (workers_actor_asignacion) desde el formulario de
 // trabajadores, más el catálogo de personas que alimenta sus desplegables.
 builder.Services.AddScoped<IActoresPersonalizadosService, ActoresPersonalizadosService>();
+
+// Los roles de Gestión Administrativa que salen de lo que la persona hace: los del puesto al crear
+// la cuenta, CONSOLIDADOR exacto y la jefatura de quien se asigna a mano como aprobador. Lo llaman
+// el login de Microsoft, Revisores de Áreas, Delegación de Revisión y la ficha del trabajador.
+builder.Services.AddScoped<IRolesPorFuncionService, RolesPorFuncionService>();
 
 // Firma de una persona (person.signature_*). Registrada globalmente porque una persona tiene UNA
 // firma y la usan tres modulos: Contabilidad (visado de facturas), Gestion GTH (carta oferta) y

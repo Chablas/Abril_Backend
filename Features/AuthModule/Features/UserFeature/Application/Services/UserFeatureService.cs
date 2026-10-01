@@ -83,7 +83,7 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
             await _repo.CreateAbrilManualUser(profile.Mail, profile.DisplayName, dto.RoleIds, createdUserId);
         }
 
-        public async Task Create(UserFeatureCreateDto dto)
+        public async Task Create(UserFeatureCreateDto dto, bool enlaceCompletarRegistro = false)
         {
             var user = await _repo.Create(dto);
 
@@ -97,7 +97,7 @@ namespace Abril_Backend.Features.AuthModule.UserFeature.Application.Services
                 Used = false
             });
 
-            var link = $"{_frontendSettings.SetPasswordUrl}?token={token}";
+            var link = $"{(enlaceCompletarRegistro ? _frontendSettings.CompleteRegistrationUrl : _frontendSettings.SetPasswordUrl)}?token={token}";
             var body = $@"
                 <p>Estimado usuario,</p>
                 <p>Le informamos que se ha creado una cuenta a su nombre en nuestro sistema.</p>

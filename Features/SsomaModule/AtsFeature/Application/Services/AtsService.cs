@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using Abril_Backend.Application.Exceptions;
+using Abril_Backend.Features.AuthModule.UserFeature.Application.Dtos;
+using Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AtsFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AtsFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Interfaces;
@@ -18,6 +20,7 @@ public class AtsService : IAtsService
     private readonly IStorageContainerResolver _containerResolver;
     private readonly IConfiguration _configuration;
     private readonly INotificacionesService _notificacionesService;
+    private readonly IUserFeatureService _userFeatureService;
     private readonly string[] _logoPaths;
 
     public AtsService(
@@ -26,6 +29,7 @@ public class AtsService : IAtsService
         IStorageContainerResolver containerResolver,
         IConfiguration configuration,
         INotificacionesService notificacionesService,
+        IUserFeatureService userFeatureService,
         IWebHostEnvironment env)
     {
         _repository = repository;
@@ -33,6 +37,7 @@ public class AtsService : IAtsService
         _containerResolver = containerResolver;
         _configuration = configuration;
         _notificacionesService = notificacionesService;
+        _userFeatureService = userFeatureService;
         _logoPaths =
         [
             Path.Combine(env.WebRootPath, "images", "abril-logo.png"),
@@ -43,24 +48,50 @@ public class AtsService : IAtsService
 
     public Task<int> ResolverWorkerId(int userId) => _repository.ResolverWorkerIdAsync(userId);
 
+    /// <summary>Cada _repository.Get* abre su propio DbContext (IDbContextFactory) — antes se
+    /// esperaban una por una (9 round trips secuenciales a la BD cada vez que se abre "Nuevo
+    /// ATS"). Como no comparten contexto, es seguro dispararlas todas en paralelo con
+    /// Task.WhenAll: el tiempo total pasa a ser el de la más lenta, no la suma de las 9.</summary>
     public async Task<AtsInitDto> GetInit(int workerId)
     {
         var (puestoId, proyectoActualId) = await _repository.GetPuestoYProyectoActual(workerId);
 
+        var esStaff = !await _repository.EsObreroDeObra(workerId);
+
+        var proyectosTask = _repository.GetProyectosActivos();
+        var puestosTask = _repository.GetPuestos();
+        var pasosTask = _repository.GetPasosParaPuesto(puestoId, esStaff);
+        var peligrosTask = _repository.GetPeligrosConRiesgos();
+        var eppsTask = _repository.GetEppActivos();
+        var herramientasTask = _repository.GetHerramientasActivas();
+        var plantillasTask = _repository.GetPlantillasActivas();
+        var plantillaSugeridaTask = _repository.GetPlantillaSugerida(puestoId);
+        var tieneConsentimientoTask = _repository.TieneConsentimiento(workerId);
+
+        await Task.WhenAll(proyectosTask, puestosTask, pasosTask, peligrosTask, eppsTask, herramientasTask,
+            plantillasTask, plantillaSugeridaTask, tieneConsentimientoTask);
+
         return new AtsInitDto
         {
-            Proyectos = await _repository.GetProyectosActivos(),
+            Proyectos = await proyectosTask,
             ProyectoActualId = proyectoActualId,
             PuestoId = puestoId,
-            Pasos = await _repository.GetPasosParaPuesto(puestoId),
-            Peligros = await _repository.GetPeligrosConRiesgos(),
-            Epps = await _repository.GetEppActivos(),
-            Herramientas = await _repository.GetHerramientasActivas(),
-            Plantillas = await _repository.GetPlantillasActivas(),
-            PlantillaSugeridaId = await _repository.GetPlantillaSugerida(puestoId),
-            TieneConsentimiento = await _repository.TieneConsentimiento(workerId),
+            Puestos = await puestosTask,
+            Pasos = await pasosTask,
+            Peligros = await peligrosTask,
+            Epps = await eppsTask,
+            Herramientas = await herramientasTask,
+            Plantillas = await plantillasTask,
+            PlantillaSugeridaId = await plantillaSugeridaTask,
+            TieneConsentimiento = await tieneConsentimientoTask,
         };
     }
+
+      /// <summary>Pasos para un puesto ARBITRARIO (no el del caller) — lo usa el wizard de ATS
+    /// Grupal cuando el creador elige el puesto/tipo de trabajo de la cuadrilla, que puede ser
+    /// distinto al suyo propio (ver AtsInitDto.Puestos).</summary>
+    public async Task<List<AtsCategoriaPasoDto>> GetPasosPorPuesto(int puestoId, int workerId)
+        => await _repository.GetPasosParaPuesto(puestoId, !await _repository.EsObreroDeObra(workerId));
 
     public async Task<AtsPasoDto> CrearPasoPersonalizado(int categoriaId, string texto)
     {
@@ -109,6 +140,56 @@ public class AtsService : IAtsService
         var fileName = $"autorizacion_{workerId}_{DateTime.UtcNow:yyyyMMddHHmmssfff}{Path.GetExtension(nombreArchivo)}";
         var urls = await _fileStorageService.UploadFilesAsync([(archivo, fileName)], container);
         await _repository.SubirAutorizacionPermiso(workerId, urls[0], subidoPorUserId);
+
+        // Capataz/Maestro de obra con correo declarado: con el escaneado firmado ya registrado se les
+        // crea la cuenta y les llega el correo para generar su contraseña.
+        if (await _repository.EsCapatazOMaestro(workerId) && await _repository.GetEmailPersonalAutorizacion(workerId) != null)
+            await CrearCuentaCapataz(workerId);
+    }
+
+    /// <summary>Crea el usuario (con contraseña propia, no SSO) del Capataz/Maestro de obra y le envía
+    /// el enlace para generarla — requiere correo personal declarado y el escaneado firmado. Si ya tiene
+    /// usuario no hace nada (para reenviar el enlace se usa "restablecer contraseña").</summary>
+    public async Task CrearCuentaCapataz(int workerId)
+    {
+        if (!await _repository.EsCapatazOMaestro(workerId))
+            throw new AbrilException("Solo el Capataz o Maestro de obra tiene cuenta propia para firmar.", 400);
+
+        var email = await _repository.GetEmailPersonalAutorizacion(workerId)
+            ?? throw new AbrilException("Registra primero el correo personal del trabajador.", 400);
+        if (!await _repository.TieneAutorizacionPermiso(workerId))
+            throw new AbrilException("Sube primero la autorización firmada — la cuenta se crea con ese respaldo.", 400);
+        if (await _repository.TieneUsuario(workerId)) return;
+
+        var roleId = await _repository.GetRoleIdCapataz()
+            ?? throw new AbrilException("Falta crear el rol \"CAPATAZ / MAESTRO DE OBRA\" (corre la migración 2026-09-30_ats_capataz_cuenta.sql).", 500);
+        var persona = await _repository.GetDatosPersonaParaCuenta(workerId)
+            ?? throw new AbrilException("El trabajador no tiene DNI registrado.", 400);
+
+        await _userFeatureService.Create(new UserFeatureCreateDto
+        {
+            DocumentIdentityCode = persona.Dni,
+            FirstNames = persona.Nombres,
+            FirstLastName = persona.ApellidoPaterno,
+            SecondLastName = persona.ApellidoMaterno,
+            Email = email,
+            PhoneNumber = persona.Telefono,
+            RoleIds = [roleId],
+        }, enlaceCompletarRegistro: true);
+    }
+
+    public async Task GuardarEmailPersonalAutorizacion(int workerId, AtsAutorizacionEmailRequestDto body)
+    {
+        if (!await _repository.EsCapatazOMaestro(workerId))
+            throw new AbrilException("El correo personal solo aplica a Capataz o Maestro de obra.", 400);
+        if (!body.AceptaDeclaracion)
+            throw new AbrilException("El trabajador debe aceptar la declaración de uso personal y exclusivo del correo.", 400);
+
+        var email = body.Email?.Trim() ?? string.Empty;
+        if (!System.Text.RegularExpressions.Regex.IsMatch(email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+            throw new AbrilException("El correo no es válido.", 400);
+
+        await _repository.GuardarEmailPersonalAutorizacion(workerId, email);
     }
 
     public async Task CapturarFirmaDigitalAutorizacion(int workerId, AtsAutorizacionFirmaDigitalRequestDto body, int capturadoPorUserId)
@@ -149,7 +230,7 @@ public class AtsService : IAtsService
 
         byte[]? firmaDigitalBytes = await DescargarBytes(firmaDigitalUrl);
 
-        return AtsAutorizacionPdfService.GenerarPdf(nombre ?? string.Empty, dni, logoBytes, firmaDigitalBytes);
+        return AtsAutorizacionPdfService.GenerarPdf(nombre ?? string.Empty, dni, logoBytes, firmaDigitalBytes, await _repository.GetEmailPersonalAutorizacion(workerId));
     }
 
     private static readonly HashSet<string> NivelesValidos = ["A", "M", "B"];
@@ -177,55 +258,126 @@ public class AtsService : IAtsService
     public async Task<AtsResponseDto> GetPorId(int id, int callerUserId, int workerId, bool esAdmin)
     {
         var ats = await _repository.GetPorId(id) ?? throw new AbrilException("ATS no encontrado.", 404);
-        var responsables = await _repository.GetResponsables(ats.ProyectoId);
-        var callerEmail = await _repository.GetEmailCorporativoWorker(workerId);
+        var (esCapataz, esAutoriza, esSsoma) = await PuedeAutorizarYVistoBueno(ats, workerId, esAdmin);
+        ats.RequiereCapataz = await _repository.EsObreroDeObra(ats.WorkerId);
 
-        var esResidente = responsables.ResidenteWorkerId == workerId;
-        var esSsoma = callerEmail != null && responsables.SsomaEmails.Contains(callerEmail, StringComparer.OrdinalIgnoreCase);
-
-        if (!esAdmin && ats.WorkerId != workerId && !esResidente && !esSsoma)
+        if (!esAdmin && ats.WorkerId != workerId && !esCapataz && !esAutoriza && !esSsoma)
             throw new AbrilException("Este ATS no te pertenece.", 403);
 
-        MarcarPermisos(ats, esResidente || esAdmin, esSsoma || esAdmin);
-        await _repository.CompletarInfoPetar([ats], new() { [ats.Id] = (esResidente || esAdmin, esSsoma || esAdmin) });
+        MarcarPermisos(ats, esCapataz, esAutoriza, esSsoma);
+        await _repository.CompletarInfoPetar([ats], new() { [ats.Id] = (esAutoriza, esSsoma) });
         return ats;
     }
 
+    /// <summary>Capataz = Capataz/Maestro de obra vinculado actualmente al proyecto (por puesto) —
+    /// solo aplica cuando el ejecutante es obrero de obra (ver EsObreroDeObra); si el ejecutante ya
+    /// es Staff, su propia firma cubre este nivel y EsCapataz siempre sale false para ese ATS.
+    /// Autorizar = Residente asignado al proyecto (Project.ResidenteWorkersId) O el
+    /// Ingeniero/Arquitecto de Producción vinculado actualmente a ese proyecto (por puesto, no
+    /// hay campo dedicado) O el Jefe/Administrador SSOMA. Visto Bueno SSOMA = el correo de
+    /// Coordinador SSOMA configurado en el proyecto O cualquier prevencionista de Abril (puesto
+    /// "Prevencionista", cualquier proyecto) O el Jefe/Administrador SSOMA. Nadie se autovalida su
+    /// propio ATS — EXCEPTO el Jefe/Administrador SSOMA, que pidió acceso total sin bloqueo ni
+    /// siquiera sobre lo suyo (es la última instancia, no hay a quién más escalar).</summary>
+    private async Task<(bool EsCapataz, bool EsAutoriza, bool EsSsoma)> PuedeAutorizarYVistoBueno(AtsResponseDto ats, int workerId, bool esAdmin)
+    {
+        if (ats.WorkerId == workerId && !esAdmin) return (false, false, false);
+        if (ats.WorkerId == workerId && esAdmin) return (true, true, true);
+
+        var responsables = await _repository.GetResponsables(ats.ProyectoId);
+        var callerEmail = await _repository.GetEmailCorporativoWorker(workerId);
+
+        var esObreroEjecutante = await _repository.EsObreroDeObra(ats.WorkerId);
+        var esCapatazCaller = esObreroEjecutante && await _repository.EsCapatazDeProyecto(workerId, ats.ProyectoId);
+        var esResidente = responsables.ResidenteWorkerId == workerId;
+        var esProduccion = !esResidente && await _repository.EsProduccionDeProyecto(workerId, ats.ProyectoId);
+        var esCoordSsoma = callerEmail != null && responsables.SsomaEmails.Contains(callerEmail, StringComparer.OrdinalIgnoreCase);
+        var esPrevencionista = !esCoordSsoma && await _repository.EsPrevencionistaAbril(workerId);
+
+        return (esCapatazCaller || (esAdmin && esObreroEjecutante), esResidente || esProduccion || esAdmin, esCoordSsoma || esPrevencionista || esAdmin);
+    }
+
     /// <summary>
-    /// Sin filtro por proyecto/responsable a propósito: el Jefe/Administrador SSOMA debe poder
-    /// ver TODOS los ATS de la empresa para saber cuáles faltan aprobar, no solo los de "sus"
-    /// proyectos — <paramref name="esAdmin"/> también le habilita los botones de Autorizar/Visto
-    /// Bueno en cualquier proyecto (ver MarcarPermisos), no solo verlos.
+    /// Un trabajador normal solo ve los ATS de SU proyecto actual (evita que vea, y sobre todo
+    /// que le salgan botones sobre, ATS de otros proyectos que no le corresponden). El Jefe/
+    /// Administrador SSOMA sigue viendo TODOS, sin filtrar — necesita saber qué falta aprobar en
+    /// cualquier proyecto, y esAdmin también lo habilita a Autorizar/Visto Bueno en cualquiera
+    /// (ver PuedeAutorizarYVistoBueno).
     /// </summary>
     public async Task<AtsListResponseDto> Listar(AtsFiltroDto filtro, int workerId, bool esAdmin)
     {
-        var res = await _repository.Listar(filtro);
-        var callerEmail = await _repository.GetEmailCorporativoWorker(workerId);
+        if (!esAdmin)
+        {
+            var (_, proyectoActualId) = await _repository.GetPuestoYProyectoActual(workerId);
+            filtro.ProyectoId = proyectoActualId;
+        }
 
-        // Cachea GetResponsables por proyecto — la lista puede traer el mismo proyecto muchas veces.
-        var cache = new Dictionary<int, AtsResponsablesDto>();
+        var res = await _repository.Listar(filtro);
+
+        // El "caller" (quien pide la lista) es el mismo en las 20 filas de la página — antes se
+        // repetían GetResponsables/EsProduccionDeProyecto/EsPrevencionista/GetEmailCorporativo
+        // por CADA fila (hasta 80 queries extra por página). Lo que depende solo del caller se
+        // calcula una vez; lo que depende del proyecto se cachea por proyecto, no por fila.
+        var callerEmail = await _repository.GetEmailCorporativoWorker(workerId);
+        var esPrevencionistaCaller = await _repository.EsPrevencionistaAbril(workerId);
+        var responsablesPorProyecto = new Dictionary<int, AtsResponsablesDto>();
+        var esProduccionPorProyecto = new Dictionary<int, bool>();
+        var esCapatazPorProyecto = new Dictionary<int, bool>();
+        var esObreroPorWorkerId = new Dictionary<int, bool>();
+
         var permisosPorAtsId = new Dictionary<int, (bool, bool)>();
         foreach (var ats in res.Data)
         {
-            if (!cache.TryGetValue(ats.ProyectoId, out var responsables))
+            if (!responsablesPorProyecto.TryGetValue(ats.ProyectoId, out var responsables))
             {
                 responsables = await _repository.GetResponsables(ats.ProyectoId);
-                cache[ats.ProyectoId] = responsables;
+                responsablesPorProyecto[ats.ProyectoId] = responsables;
+            }
+            if (!esProduccionPorProyecto.TryGetValue(ats.ProyectoId, out var esProduccion))
+            {
+                esProduccion = await _repository.EsProduccionDeProyecto(workerId, ats.ProyectoId);
+                esProduccionPorProyecto[ats.ProyectoId] = esProduccion;
+            }
+            if (!esCapatazPorProyecto.TryGetValue(ats.ProyectoId, out var esCapataz))
+            {
+                esCapataz = await _repository.EsCapatazDeProyecto(workerId, ats.ProyectoId);
+                esCapatazPorProyecto[ats.ProyectoId] = esCapataz;
+            }
+            if (!esObreroPorWorkerId.TryGetValue(ats.WorkerId, out var esObreroEjecutante))
+            {
+                esObreroEjecutante = await _repository.EsObreroDeObra(ats.WorkerId);
+                esObreroPorWorkerId[ats.WorkerId] = esObreroEjecutante;
             }
 
-            var esResidente = responsables.ResidenteWorkerId == workerId;
-            var esSsoma = callerEmail != null && responsables.SsomaEmails.Contains(callerEmail, StringComparer.OrdinalIgnoreCase);
-            MarcarPermisos(ats, esResidente || esAdmin, esSsoma || esAdmin);
-            permisosPorAtsId[ats.Id] = (esResidente || esAdmin, esSsoma || esAdmin);
+            var (esCapatazEfectivo, esAutoriza, esSsoma) = CalcularPermisos(ats, workerId, esAdmin, responsables, callerEmail, esProduccion, esPrevencionistaCaller, esCapataz, esObreroEjecutante);
+            ats.RequiereCapataz = esObreroEjecutante;
+            MarcarPermisos(ats, esCapatazEfectivo, esAutoriza, esSsoma);
+            permisosPorAtsId[ats.Id] = (esAutoriza, esSsoma);
         }
 
         await _repository.CompletarInfoPetar(res.Data, permisosPorAtsId);
         return res;
     }
 
-    private static void MarcarPermisos(AtsResponseDto ats, bool esResidente, bool esSsoma)
+    private static (bool EsCapataz, bool EsAutoriza, bool EsSsoma) CalcularPermisos(
+        AtsResponseDto ats, int workerId, bool esAdmin, AtsResponsablesDto responsables,
+        string? callerEmail, bool esProduccion, bool esPrevencionistaCaller, bool esCapataz, bool esObreroEjecutante)
     {
-        ats.PuedeAutorizar = esResidente && ats.Estado == "Firmado" && ats.AutorizaFirmaUrl == null;
+        if (ats.WorkerId == workerId) return esAdmin ? (true, true, true) : (false, false, false);
+
+        var esResidente = responsables.ResidenteWorkerId == workerId;
+        var esProduccionEfectivo = !esResidente && esProduccion;
+        var esCoordSsoma = callerEmail != null && responsables.SsomaEmails.Contains(callerEmail, StringComparer.OrdinalIgnoreCase);
+        var esPrevencionista = !esCoordSsoma && esPrevencionistaCaller;
+        var esCapatazEfectivo = esObreroEjecutante && (esCapataz || esAdmin);
+
+        return (esCapatazEfectivo, esResidente || esProduccionEfectivo || esAdmin, esCoordSsoma || esPrevencionista || esAdmin);
+    }
+
+    private static void MarcarPermisos(AtsResponseDto ats, bool esCapataz, bool esAutoriza, bool esSsoma)
+    {
+        ats.PuedeCapataz = esCapataz && ats.Estado == "Firmado" && ats.CapatazFirmaUrl == null;
+        ats.PuedeAutorizar = esAutoriza && ats.Estado == "Firmado" && ats.AutorizaFirmaUrl == null;
         ats.PuedeVistoBuenoSsoma = esSsoma && ats.Estado == "Firmado" && ats.SsomaFirmaUrl == null;
     }
 
@@ -310,6 +462,9 @@ public class AtsService : IAtsService
         catch { /* best-effort: la firma del ejecutante ya quedó guardada, el aviso es una comodidad */ }
     }
 
+    public async Task FirmarCapataz(int id, int callerUserId, bool esAdmin, AtsFirmarVistoRequestDto body)
+        => await FirmarVistoComun(id, callerUserId, esAdmin, body, "Capataz");
+
     public async Task FirmarAutorizacion(int id, int callerUserId, bool esAdmin, AtsFirmarVistoRequestDto body)
         => await FirmarVistoComun(id, callerUserId, esAdmin, body, "Autoriza");
 
@@ -323,22 +478,38 @@ public class AtsService : IAtsService
 
         var entidad = await _repository.GetEntidad(id) ?? throw new AbrilException("ATS no encontrado.", 404);
         var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
-        var responsables = await _repository.GetResponsables(entidad.ProyectoId);
+
+        // Nadie se autovalida su propio ATS — excepto el Jefe/Administrador SSOMA (ver
+        // PuedeAutorizarYVistoBueno): pidió acceso total, incluido sobre lo suyo.
+        if (entidad.WorkerId == workerId && !esAdmin)
+            throw new AbrilException("No puedes dar visto bueno a tu propio ATS.", 403);
 
         // El Jefe/Administrador SSOMA puede firmar cualquiera de los dos vistos en cualquier
         // proyecto — es quien pidió tener acceso total para destrabar lo que falte aprobar.
         if (!esAdmin)
         {
-            if (rol == "Autoriza")
+            var responsables = await _repository.GetResponsables(entidad.ProyectoId);
+            if (rol == "Capataz")
             {
-                if (responsables.ResidenteWorkerId != workerId)
-                    throw new AbrilException("Solo el Residente asignado a este proyecto puede firmar como Autoriza.", 403);
+                if (!await _repository.EsObreroDeObra(entidad.WorkerId))
+                    throw new AbrilException("Este ATS es de un Staff/supervisor, no requiere firma de Capataz.", 409);
+                if (!await _repository.EsCapatazDeProyecto(workerId, entidad.ProyectoId))
+                    throw new AbrilException("Solo el Capataz o Maestro de obra de este proyecto puede firmar este nivel.", 403);
+            }
+            else if (rol == "Autoriza")
+            {
+                var esResidente = responsables.ResidenteWorkerId == workerId;
+                var esProduccion = !esResidente && await _repository.EsProduccionDeProyecto(workerId, entidad.ProyectoId);
+                if (!esResidente && !esProduccion)
+                    throw new AbrilException("Solo el Residente o el Ing./Arq. de Producción de este proyecto pueden firmar como Autoriza.", 403);
             }
             else
             {
                 var email = await _repository.GetEmailCorporativoWorker(workerId);
-                if (email == null || !responsables.SsomaEmails.Contains(email, StringComparer.OrdinalIgnoreCase))
-                    throw new AbrilException("Solo el Coordinador SSOMA de este proyecto puede dar el Visto Bueno.", 403);
+                var esCoordSsoma = email != null && responsables.SsomaEmails.Contains(email, StringComparer.OrdinalIgnoreCase);
+                var esPrevencionista = !esCoordSsoma && await _repository.EsPrevencionistaAbril(workerId);
+                if (!esCoordSsoma && !esPrevencionista)
+                    throw new AbrilException("Solo el Coordinador SSOMA de este proyecto o un prevencionista de Abril pueden dar el Visto Bueno.", 403);
             }
         }
 
@@ -359,8 +530,10 @@ public class AtsService : IAtsService
 
         byte[]? selfieBytes = ats.SelfieUrl != null ? await DescargarBytes(ats.SelfieUrl) : null;
         byte[]? firmaBytes = ats.FirmaUrl != null ? await DescargarBytes(ats.FirmaUrl) : null;
+        byte[]? firmaCapatazBytes = ats.CapatazFirmaUrl != null ? await DescargarBytes(ats.CapatazFirmaUrl) : null;
         byte[]? firmaAutorizaBytes = ats.AutorizaFirmaUrl != null ? await DescargarBytes(ats.AutorizaFirmaUrl) : null;
         byte[]? firmaSsomaBytes = ats.SsomaFirmaUrl != null ? await DescargarBytes(ats.SsomaFirmaUrl) : null;
+        ats.RequiereCapataz = await _repository.EsObreroDeObra(ats.WorkerId);
 
         // Ruta PÚBLICA (fuera del shell logueado) — un inspector externo no tiene ni debe
         // necesitar una cuenta de Abril para verificar el documento.
@@ -372,7 +545,7 @@ public class AtsService : IAtsService
         if (logoPath != null)
             logoBytes = await File.ReadAllBytesAsync(logoPath);
 
-        var pdfBytes = AtsPdfService.Generar(ats, selfieBytes, firmaBytes, verificacionUrl, firmaAutorizaBytes, firmaSsomaBytes, logoBytes);
+        var pdfBytes = AtsPdfService.Generar(ats, selfieBytes, firmaBytes, verificacionUrl, firmaAutorizaBytes, firmaSsomaBytes, logoBytes, firmaCapatazBytes);
 
         var container = _containerResolver.GetAtsContainerName();
         using var stream = new MemoryStream(pdfBytes);
@@ -494,6 +667,269 @@ public class AtsService : IAtsService
     }
 
     public Task EliminarControl(int controlId) => _repository.EliminarControl(controlId);
+
+    // ── ATS Grupal ──────────────────────────────────────────────────────────
+
+    /// <summary>Cualquier trabajador puede crear un ATS grupal (decisión de Samuel 2026-09-30: en
+    /// la práctica, cualquiera está en capacidad de hacerlo) — mismo gate de autorización de firma
+    /// digital que el ATS individual, porque el autor también puede adherirse a su propio grupo.</summary>
+    public async Task<AtsGrupoCrearResponseDto> CrearGrupo(int workerId, AtsGuardarRequestDto dto)
+    {
+        await ExigirAutorizacionPermiso(workerId);
+        Validar(dto);
+        var grupo = await _repository.CrearGrupo(workerId, dto);
+        return new AtsGrupoCrearResponseDto { Id = grupo.Id, QrToken = grupo.QrToken.ToString(), QrExpiraEn = grupo.QrExpiraEn };
+    }
+
+    public async Task<AtsGrupoEstadoDto> GetEstadoGrupo(int id, int workerId, bool esAdmin)
+    {
+        if (!esAdmin && !await _repository.EsAutorDeGrupo(id, workerId))
+            throw new AbrilException("Este ATS grupal no te pertenece.", 403);
+        return await _repository.GetEstadoGrupo(id) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+    }
+
+    public async Task CerrarGrupo(int id, int workerId, bool esAdmin)
+    {
+        if (!esAdmin && !await _repository.EsAutorDeGrupo(id, workerId))
+            throw new AbrilException("Este ATS grupal no te pertenece.", 403);
+        await _repository.CerrarGrupo(id);
+    }
+
+    /// <summary>Página pública que abre el QR — sin login. "Válido" exige grupo existente, Activo,
+    /// y dentro de la ventana de vigencia del token (no acotado a proyecto acá: eso ya lo filtra
+    /// el propio token, que nace ligado a un solo grupo).</summary>
+    public async Task<AtsGrupoResumenPublicoDto> GetResumenPublico(Guid token)
+    {
+        var grupo = await _repository.GetGrupoPorToken(token);
+        if (grupo is null)
+            return new AtsGrupoResumenPublicoDto { Valido = false, MotivoInvalido = "Este enlace no corresponde a ningún ATS grupal." };
+        if (grupo.Estado != "Activo")
+            return new AtsGrupoResumenPublicoDto { Valido = false, MotivoInvalido = "Este ATS grupal ya fue cerrado por quien lo creó." };
+        if (grupo.QrExpiraEn < DateTime.UtcNow)
+            return new AtsGrupoResumenPublicoDto { Valido = false, MotivoInvalido = "Este enlace venció — pide uno nuevo para el día de hoy." };
+
+        return new AtsGrupoResumenPublicoDto
+        {
+            Valido = true,
+            ProyectoNombre = grupo.Proyecto?.ProjectDescription,
+            Actividad = grupo.Actividad,
+            TorreNombre = grupo.TorreNombre,
+            Pisos = grupo.Pisos,
+            Lugar = grupo.Lugar,
+            Fecha = grupo.Fecha,
+            Epps = grupo.Epps.Select(e => e.Nombre).ToList(),
+            Herramientas = grupo.Herramientas.Select(h => h.Nombre).ToList(),
+            Riesgos = grupo.RiesgosDetalle.OrderBy(r => r.Orden).Select(r => new AtsRiesgoDetalleResponseDto
+            {
+                PeligroId = r.PeligroId,
+                RiesgoId = r.RiesgoId,
+                PeligroNombre = r.PeligroNombre,
+                RiesgoNombre = r.RiesgoNombre,
+                RiesgoBase = r.RiesgoBase,
+                Controles = r.Controles,
+                RiesgoResidual = r.RiesgoResidual,
+            }).ToList(),
+        };
+    }
+
+    public async Task<List<AtsGrupoWorkerOpcionDto>> GetWorkersParaAdhesion(Guid token)
+    {
+        var grupo = await _repository.GetGrupoPorToken(token) ?? throw new AbrilException("Enlace inválido.", 404);
+        return await _repository.GetWorkersParaAdhesion(grupo.ProyectoId);
+    }
+
+    /// <summary>Firma liviana de adhesión — sin login (el token del QR es el único candado). El
+    /// DNI corto es fricción mínima contra "elegir cualquier nombre de la lista"; la selfie+geo+
+    /// firma es la misma prueba de presencia física que el ATS individual. Reusa Firmar() tal cual
+    /// para no duplicar la lógica de consentimiento/hash/selfie-duplicada/aviso a responsables.</summary>
+    public async Task<int> UnirseAGrupo(Guid token, AtsGrupoUnirseRequestDto body, string? ipOrigen, string? userAgent)
+    {
+        var grupo = await _repository.GetGrupoPorToken(token) ?? throw new AbrilException("Enlace inválido.", 404);
+        if (grupo.Estado != "Activo")
+            throw new AbrilException("Este ATS grupal ya fue cerrado por quien lo creó.", 409);
+        if (grupo.QrExpiraEn < DateTime.UtcNow)
+            throw new AbrilException("Este enlace venció — pide uno nuevo para el día de hoy.", 409);
+
+        if (!await _repository.DniCoincide(body.WorkerId, body.DniConfirmacion))
+            throw new AbrilException("Los dígitos de DNI no coinciden con el trabajador seleccionado.", 400);
+
+        var opciones = await _repository.GetWorkersParaAdhesion(grupo.ProyectoId);
+        if (!opciones.Any(o => o.WorkerId == body.WorkerId))
+            throw new AbrilException("Este trabajador no está habilitado para firmar en este proyecto.", 403);
+
+        await ExigirAutorizacionPermiso(body.WorkerId);
+
+        var atsId = await _repository.CrearDesdeGrupo(body.WorkerId, grupo);
+
+        var firmarDto = new AtsFirmarRequestDto
+        {
+            SelfieBase64 = body.SelfieBase64,
+            FirmaBase64 = body.FirmaBase64,
+            HoraDispositivo = body.HoraDispositivo,
+            Lat = body.Lat,
+            Lng = body.Lng,
+            PrecisionMetros = body.PrecisionMetros,
+            AceptaConsentimiento = body.AceptaConsentimiento,
+        };
+        await Firmar(atsId, body.WorkerId, firmarDto, ipOrigen, userAgent);
+
+        return atsId;
+    }
+
+    // ── Firma única del Capataz por cuadrilla (link público, sin login) ─────
+
+    /// <summary>Lo que ve el Capataz al abrir el link: quiénes ya adhirieron (su firma certifica a
+    /// esa lista) y si su firma anterior sigue vigente o quedó pendiente por nuevos adheridos. No
+    /// exige grupo Activo: el flujo natural es firmar DESPUÉS de que el autor cerró las adhesiones.</summary>
+    public async Task<AtsGrupoCapatazPublicoDto> GetCapatazPublico(Guid token)
+    {
+        var grupo = await _repository.GetGrupoPorToken(token);
+        if (grupo is null)
+            return new AtsGrupoCapatazPublicoDto { Valido = false, MotivoInvalido = "Este enlace no corresponde a ningún ATS grupal." };
+        if (grupo.QrExpiraEn < DateTime.UtcNow)
+            return new AtsGrupoCapatazPublicoDto { Valido = false, MotivoInvalido = "Este enlace venció — el ATS grupal era para otra jornada." };
+
+        var estado = await _repository.GetEstadoGrupo(grupo.Id);
+        return new AtsGrupoCapatazPublicoDto
+        {
+            Valido = true,
+            ProyectoNombre = grupo.Proyecto?.ProjectDescription,
+            Actividad = grupo.Actividad,
+            TrabajadoresAdheridos = estado?.TrabajadoresAdheridos ?? [],
+            YaFirmo = grupo.CapatazFirmaUrl != null,
+            Vigente = estado?.CapatazVigente ?? false,
+            NuevosSinValidar = estado?.CapatazNuevosSinValidar ?? 0,
+            Capataces = await _repository.GetCapatacesDeProyecto(grupo.ProyectoId),
+        };
+    }
+
+    /// <summary>Capataz/Maestro CON cuenta firma el grupo completo desde la plataforma — su usuario ya
+    /// lo identifica, así que no pide selfie/geo (sí quedan el usuario y la hora de servidor). Misma
+    /// regla que el link público: solo con adheridos y solo si no está ya vigente.</summary>
+    public async Task FirmarCapatazGrupoLogueado(int grupoId, int callerUserId, bool esAdmin, AtsFirmarVistoRequestDto body)
+    {
+        if (string.IsNullOrWhiteSpace(body.FirmaBase64))
+            throw new AbrilException("La firma es obligatoria.", 400);
+
+        var grupo = await _repository.GetGrupoEntidad(grupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
+
+        if (!esAdmin && !await _repository.EsCapatazDeProyecto(workerId, grupo.ProyectoId))
+            throw new AbrilException("Solo el Capataz o Maestro de obra de este proyecto puede firmar este nivel.", 403);
+
+        var estado = await _repository.GetEstadoGrupo(grupoId);
+        if (estado is null || estado.TotalAdhesiones == 0)
+            throw new AbrilException("Todavía no hay trabajadores adheridos — firma cuando la cuadrilla ya haya firmado.", 409);
+        if (estado.CapatazVigente)
+            throw new AbrilException("La firma de Capataz de este ATS grupal ya está vigente — no se sumó nadie nuevo desde entonces.", 409);
+
+        var (nombre, cargo) = await _repository.GetNombreYCargo(workerId);
+        var firmaBytes = FirmaImagenHelper.DecodePng(body.FirmaBase64);
+        var firmaHash = Convert.ToHexString(SHA256.HashData(firmaBytes));
+        var firmaUrl = await SubirBytes("capatazgrupo", workerId, firmaBytes, "png");
+
+        await _repository.FirmarCapatazGrupo(grupoId, workerId, nombre, cargo, firmaUrl, firmaHash, DateTime.UtcNow, null, null, null, null, null, null);
+    }
+
+    public async Task FirmarCapatazPublico(Guid token, AtsGrupoCapatazFirmarRequestDto body)
+    {
+        if (string.IsNullOrWhiteSpace(body.FirmaBase64))
+            throw new AbrilException("La firma es obligatoria.", 400);
+        if (string.IsNullOrWhiteSpace(body.SelfieBase64))
+            throw new AbrilException("La selfie es obligatoria — es la prueba de que estás en obra.", 400);
+
+        var grupo = await _repository.GetGrupoPorToken(token) ?? throw new AbrilException("Enlace inválido.", 404);
+        if (grupo.QrExpiraEn < DateTime.UtcNow)
+            throw new AbrilException("Este enlace venció — el ATS grupal era para otra jornada.", 409);
+
+        var estado = await _repository.GetEstadoGrupo(grupo.Id);
+        if (estado is null || estado.TotalAdhesiones == 0)
+            throw new AbrilException("Todavía no hay trabajadores adheridos — firma cuando la cuadrilla ya haya firmado.", 409);
+        if (estado.CapatazVigente)
+            throw new AbrilException("La firma de Capataz de este ATS grupal ya está vigente — no se sumó nadie nuevo desde entonces.", 409);
+
+        if (!await _repository.DniCoincide(body.WorkerId, body.DniConfirmacion))
+            throw new AbrilException("Los dígitos de DNI no coinciden con el trabajador seleccionado.", 400);
+
+        var capataces = await _repository.GetCapatacesDeProyecto(grupo.ProyectoId);
+        if (!capataces.Any(c => c.WorkerId == body.WorkerId))
+            throw new AbrilException("Solo el Capataz o Maestro de obra de este proyecto puede firmar este nivel.", 403);
+
+        var (nombre, cargo) = await _repository.GetNombreYCargo(body.WorkerId);
+        var firmaBytes = FirmaImagenHelper.DecodePng(body.FirmaBase64);
+        var firmaHash = Convert.ToHexString(SHA256.HashData(firmaBytes));
+        var firmaUrl = await SubirBytes("capatazgrupo", body.WorkerId, firmaBytes, "png");
+
+        var (selfieUrl, selfieHash) = await SubirImagenConHash("capatazselfie", body.WorkerId, body.SelfieBase64);
+
+        await _repository.FirmarCapatazGrupo(grupo.Id, body.WorkerId, nombre, cargo, firmaUrl, firmaHash, DateTime.UtcNow,
+            selfieUrl, selfieHash, body.Lat, body.Lng, body.PrecisionMetros, body.HoraDispositivo);
+    }
+
+    // ── QR fijo por proyecto (crear ATS Grupal sin login) ──────────────────
+
+    /// <summary>Idempotente: si el proyecto ya tiene un QR de creación, devuelve el mismo (se
+    /// imprime/pega UNA vez en la obra). Lo pide cualquier usuario logueado con acceso al módulo
+    /// de ATS — no es información sensible, es solo el link que ya va a estar pegado en físico.</summary>
+    public async Task<string> GetOrCrearQrProyecto(int proyectoId)
+    {
+        var token = await _repository.GetOrCrearTokenProyecto(proyectoId);
+        return token.ToString();
+    }
+
+    /// <summary>Página pública que abre el QR de obra — sin login, el token es el único candado.
+    /// A diferencia de GetResumenPublico (adhesión a un grupo YA creado), acá todavía no hay
+    /// contenido: solo valida que el proyecto exista y devuelve a quién puede elegir como "yo soy".</summary>
+    public async Task<AtsGrupoProyectoPublicoDto> GetResumenProyectoPublico(Guid tokenProyecto)
+    {
+        var proyectoId = await _repository.GetProyectoPorTokenCrear(tokenProyecto);
+        if (proyectoId is null)
+            return new AtsGrupoProyectoPublicoDto { Valido = false, MotivoInvalido = "Este código no corresponde a ningún proyecto." };
+
+        return new AtsGrupoProyectoPublicoDto
+        {
+            Valido = true,
+            ProyectoNombre = await _repository.GetProyectoNombre(proyectoId.Value),
+            Trabajadores = await _repository.GetWorkersParaAdhesion(proyectoId.Value),
+        };
+    }
+
+    /// <summary>Mismos catálogos que GetInit (pasos por puesto, EPP, herramientas, peligros,
+    /// plantillas) para que el wizard público funcione idéntico al logueado — pero el
+    /// ProyectoActualId sale SIEMPRE del token (el trabajador puede figurar vinculado a otro
+    /// proyecto en el sistema; acá importa el proyecto del QR que escaneó, no el suyo).</summary>
+    public async Task<AtsInitDto> GetInitPublico(Guid tokenProyecto, AtsGrupoInitPublicoRequestDto body)
+    {
+        var proyectoId = await _repository.GetProyectoPorTokenCrear(tokenProyecto) ?? throw new AbrilException("Enlace inválido.", 404);
+        if (!await _repository.DniCoincide(body.WorkerId, body.DniConfirmacion))
+            throw new AbrilException("Los dígitos de DNI no coinciden con el trabajador seleccionado.", 400);
+
+        var opciones = await _repository.GetWorkersParaAdhesion(proyectoId);
+        if (!opciones.Any(o => o.WorkerId == body.WorkerId))
+            throw new AbrilException("Este trabajador no está habilitado para firmar en este proyecto.", 403);
+
+        var init = await GetInit(body.WorkerId);
+        init.ProyectoActualId = proyectoId;
+        return init;
+    }
+
+    /// <summary>Crea el ATS grupal desde la página pública — mismo gate de autorización de firma
+    /// digital que la creación logueada (ExigirAutorizacionPermiso, dentro de CrearGrupo). El
+    /// ProyectoId que venga en el contenido se SOBRESCRIBE con el del token: nunca confiar en lo
+    /// que mande el cliente para decidir en qué proyecto queda el grupo.</summary>
+    public async Task<AtsGrupoCrearResponseDto> CrearGrupoPublico(Guid tokenProyecto, AtsGrupoCrearPublicoRequestDto body)
+    {
+        var proyectoId = await _repository.GetProyectoPorTokenCrear(tokenProyecto) ?? throw new AbrilException("Enlace inválido.", 404);
+        if (!await _repository.DniCoincide(body.WorkerId, body.DniConfirmacion))
+            throw new AbrilException("Los dígitos de DNI no coinciden con el trabajador seleccionado.", 400);
+
+        var opciones = await _repository.GetWorkersParaAdhesion(proyectoId);
+        if (!opciones.Any(o => o.WorkerId == body.WorkerId))
+            throw new AbrilException("Este trabajador no está habilitado para firmar en este proyecto.", 403);
+
+        body.Contenido.ProyectoId = proyectoId;
+        return await CrearGrupo(body.WorkerId, body.Contenido);
+    }
 
     private async Task<(string Url, string Hash)> SubirImagenConHash(string prefijo, int workerId, string base64)
     {

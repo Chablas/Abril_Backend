@@ -16,10 +16,17 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Applicatio
 
         public List<RevisoresAreaFilaDto> Areas { get; set; } = new();
 
-        /// <summary>Personas elegibles (correo corporativo). Solo para quien puede editar.</summary>
+        /// <summary>
+        /// Personas elegibles (correo corporativo). Solo para quien puede editar: quien administra,
+        /// todas; un jefe, la gente de su área.
+        /// </summary>
         public List<PersonaOpcionDto> Options { get; set; } = new();
 
-        /// <summary>true = el usuario puede editar (ADMINISTRADOR DE SOLICITUD DE SALIDAS o USUARIO DE GTH).</summary>
+        /// <summary>
+        /// true = el usuario puede editar algo: ADMINISTRADOR DEL SISTEMA o USUARIO DE GTH, todo; un
+        /// JEFE, los consolidadores de oficina central de su área. Qué celda exactamente lo dice
+        /// <see cref="ActorCeldaDetalleDto.Editable"/>.
+        /// </summary>
         public bool PuedeEditar { get; set; }
     }
 
@@ -146,7 +153,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Applicatio
     /// <summary>Una celda del detalle: el valor de hoy y lo personalizado exactamente en esta fila.</summary>
     public class ActorCeldaDetalleDto : ActorCeldaDto
     {
-        /// <summary>false = no se puede personalizar (el actor no aplica a este caso).</summary>
+        /// <summary>
+        /// false = este usuario no la puede personalizar: el actor no aplica a este caso o, para un
+        /// jefe, no es la celda de los consolidadores de oficina central de su área.
+        /// </summary>
         public bool Editable { get; set; }
 
         /// <summary>

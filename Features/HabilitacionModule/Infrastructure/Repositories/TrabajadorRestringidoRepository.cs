@@ -18,11 +18,22 @@ namespace Abril_Backend.Features.Habilitacion.Infrastructure.Repositories
 
         public async Task<bool> EstaRestringidoPorDniAsync(string? dni)
         {
-            if (string.IsNullOrWhiteSpace(dni)) return false;
-            var dniNorm = dni.Trim().ToUpper();
             using var ctx = _factory.CreateDbContext();
+            return await EstaRestringidoAsync(ctx, dni);
+        }
+
+        /// <summary>
+        /// Misma consulta que EstaRestringidoPorDniAsync pero sobre un contexto ya abierto (para
+        /// flujos que no inyectan el servicio, como Reclutamiento). Compara sin ceros a la izquierda:
+        /// "007267178" y "07267178" son la misma persona.
+        /// </summary>
+        public static async Task<bool> EstaRestringidoAsync(AppDbContext ctx, string? dni)
+        {
+            if (string.IsNullOrWhiteSpace(dni)) return false;
+            var dniNorm = dni.Trim().ToUpper().TrimStart('0');
+            if (dniNorm.Length == 0) return false;
             return await ctx.SsTrabajadorRestringido
-                .AnyAsync(r => r.Dni != null && r.Dni.ToUpper() == dniNorm && r.Activo);
+                .AnyAsync(r => r.Activo && r.Dni != null && r.Dni.Trim().ToUpper().TrimStart('0') == dniNorm);
         }
 
         public async Task<List<TrabajadorRestringidoListDto>> GetAllAsync(bool soloActivos = true, string? dni = null, bool incluirDescansoMedico = false)

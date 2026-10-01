@@ -9,6 +9,7 @@ using Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Data;
 using Abril_Backend.Infrastructure.Models;
 using Abril_Backend.Shared.Models;
+using Abril_Backend.Shared.Services.ReclutamientoEmoIngreso.Interfaces;
 using Abril_Backend.Shared.Services.Revisores.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Abril_Backend.Shared.Constants;
@@ -19,13 +20,16 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
     {
         private readonly IDbContextFactory<AppDbContext> _factory;
         private readonly IJefeRevisorResolver _jefeResolver;
+        private readonly IReclutamientoEmoIngresoService _reclutamientoEmo;
 
         public InterconsultaRepository(
             IDbContextFactory<AppDbContext> factory,
-            IJefeRevisorResolver jefeResolver)
+            IJefeRevisorResolver jefeResolver,
+            IReclutamientoEmoIngresoService reclutamientoEmo)
         {
             _factory = factory;
             _jefeResolver = jefeResolver;
+            _reclutamientoEmo = reclutamientoEmo;
         }
 
         public async Task<PagedResult<InterconsultaListDto>> List(InterconsultaFilterDto filter)
@@ -40,12 +44,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 from m in mj.DefaultIfEmpty()
                 // Esta pantalla es solo para personal de Abril activo: excluye contratistas
                 // (contrata_casa != "Casa") y trabajadores retirados.
-                where w.ContrataCasa == "Casa" && WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId)
+                // El finalista aprobado de Reclutamiento también entra: todavía no es trabajador,
+                // pero su EMO de Ingreso es de Abril y, si sale Observado, la clínica tiene que poder
+                // levantar la interconsulta desde acá. Sin él, la programación se quedaba "En
+                // Interconsulta" (oculta en Agenda) y el requerimiento, en EMO_OBSERVADO para siempre.
+                // No se le exige contrata_casa: las fichas abiertas antes de ClasificacionPreIngreso
+                // no lo traen.
+                where (w.ContrataCasa == "Casa" && WorkersEstadoIds.NoRetirados.Contains(w.WorkersEstadoId))
+                      || w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado
                 select new
                 {
                     i,
                     w,
                     m,
+                    EsPostulante = w.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado,
                     // Fuente principal: ss_hab_worker_proyecto (la que administra Habilitación en
                     // "Trabajadores > Proyectos asignados", más confiable). Solo cuenta la
                     // asignación activa (fecha_fin null) — si no hay ninguna, se deja en blanco en
@@ -74,7 +86,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
             if (filter.ContributorId.HasValue)
                 q = q.Where(x =>
                     (x.ProyAsignada != null && x.ProyAsignada.EmpresaId == filter.ContributorId.Value) ||
-                    (x.ProyAsignada == null && x.VincActiva != null && x.VincActiva.EmpresaId == filter.ContributorId.Value));
+                    (x.ProyAsignada == null && x.VincActiva != null && x.VincActiva.EmpresaId == filter.ContributorId.Value) ||
+                    // El postulante no tiene asignación ni vinculación: su razón social es la que
+                    // GTH le eligió al programarle el EMO de Ingreso (workers.contributor_id).
+                    (x.EsPostulante && x.ProyAsignada == null && x.VincActiva == null && x.w.ContributorId == filter.ContributorId.Value));
             if (filter.ObraOficinaStaffId.HasValue)
             {
                 // Si obra_oficina_staff_id viene nulo se asume "Obra": solo Staff/Oficina Central
@@ -125,7 +140,10 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     Puesto = x.w.PuestoCatalogo == null ? null : x.w.PuestoCatalogo.Nombre,
                     WorkerEmail = x.w.EmailCorporativo,
                     ProyectoId = (x.ProyAsignada != null ? (int?)x.ProyAsignada.ProyectoId : null) ?? (x.VincActiva != null ? (int?)x.VincActiva.ProyectoId : null),
-                    EmpresaId = (x.ProyAsignada != null ? x.ProyAsignada.EmpresaId : null) ?? (x.VincActiva != null ? x.VincActiva.EmpresaId : null)
+                    EmpresaId = (x.ProyAsignada != null ? x.ProyAsignada.EmpresaId : null)
+                             ?? (x.VincActiva != null ? x.VincActiva.EmpresaId : null)
+                             ?? (x.EsPostulante ? x.w.ContributorId : null),
+                    x.EsPostulante
                 })
                 .ToListAsync();
 
@@ -163,6 +181,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     WorkerId = x.WorkerId,
                     WorkerNombre = x.WorkerNombre,
                     WorkerDni = x.WorkerDni,
+                    EsPostulante = x.EsPostulante,
                     // Oficina Central no pertenece a un proyecto de obra: su unidad organizativa es
                     // la jefatura, no la última vinculación (que puede quedar obsoleta si el trabajador
                     // pasó de obra a oficina central sin cerrarse en worker_vinculaciones).
@@ -246,12 +265,26 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 .Select(x => x.ProyAsignada?.EmpresaId ?? x.VincActiva?.EmpresaId)
                 .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
 
-            // El coordinador administrativo es una FK a workers: su correo se lee de la
-            // ficha, por eso el Include (en el mismo roundtrip, sin N+1).
+            // Correos del proyecto en un solo roundtrip. El coordinador administrativo y el
+            // residente son FK a workers y su correo se lee de la ficha; Project no tiene
+            // navegación al residente, así que va por subconsulta (sin N+1), como en
+            // Configuración → Proyectos. No leer el texto viejo email_residente: nadie lo mantiene.
             var proyectoMap = await ctx.Project
-                .Include(p => p.CoordAdmin)
                 .Where(p => proyectoIds.Contains(p.ProjectId))
-                .ToDictionaryAsync(p => p.ProjectId, p => p);
+                .Select(p => new
+                {
+                    p.ProjectId,
+                    p.ProjectDescription,
+                    CoordAdminEmail = p.CoordAdmin != null ? p.CoordAdmin.EmailCorporativo : null,
+                    ResidenteEmail = ctx.Worker
+                        .Where(w => w.Id == p.ResidenteWorkersId)
+                        .Select(w => w.EmailCorporativo)
+                        .FirstOrDefault(),
+                    p.EmailResponsable,
+                    p.EmailRrhh,
+                    p.EmailCoordSsoma
+                })
+                .ToDictionaryAsync(p => p.ProjectId);
             var empresaMap = await ctx.Contributor
                 .Where(c => empresaIds.Contains(c.ContributorId))
                 .ToDictionaryAsync(c => c.ContributorId, c => c);
@@ -265,7 +298,7 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                 var esOficinaCentral = x.ObraOficinaStaffId == ObraOficinaStaffIds.OficinaCentral;
                 var proyectoId = esOficinaCentral ? null : (x.ProyAsignada?.ProyectoId ?? x.VincActiva?.ProyectoId);
                 var empresaId = x.ProyAsignada?.EmpresaId ?? x.VincActiva?.EmpresaId;
-                Project? proyecto = proyectoId.HasValue && proyectoMap.TryGetValue(proyectoId.Value, out var p) ? p : null;
+                var proyecto = proyectoId.HasValue && proyectoMap.TryGetValue(proyectoId.Value, out var p) ? p : null;
                 Contributor? empresa = empresaId.HasValue && empresaMap.TryGetValue(empresaId.Value, out var e) ? e : null;
 
                 jefeMap.TryGetValue(x.WorkerId, out var jefe);
@@ -289,8 +322,8 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                     JefaturaEmail = jefaturaEmail,
                     ProyectoId = proyectoId,
                     ProyectoNombre = esOficinaCentral ? "Oficina Central" : proyecto?.ProjectDescription,
-                    ProyectoEmailCoordAdmin = proyecto?.CoordAdmin?.EmailCorporativo,
-                    ProyectoEmailResidente = proyecto?.EmailResidente,
+                    ProyectoEmailCoordAdmin = proyecto?.CoordAdminEmail,
+                    ProyectoEmailResidente = proyecto?.ResidenteEmail,
                     ProyectoEmailResponsable = proyecto?.EmailResponsable,
                     ProyectoEmailRrhh = proyecto?.EmailRrhh,
                     ProyectoEmailCoordSsoma = proyecto?.EmailCoordSsoma,
@@ -528,6 +561,20 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         .Select(v => (int?)v.EmpresaId)
                         .FirstOrDefaultAsync();
 
+                    // El finalista aprobado no tiene vinculación hasta que firma la carta oferta: su
+                    // razón social es la que GTH le eligió al programarle el EMO de Ingreso
+                    // (workers.contributor_id, la misma que usa ProgramacionEmoRepository.Create).
+                    // Sin esto la fila nacía con empresa nula y Agenda no la mostraba nunca.
+                    if (empresaId == null)
+                    {
+                        var ficha = await ctx.Worker
+                            .Where(w => w.Id == ent.WorkerId)
+                            .Select(w => new { w.WorkersEstadoId, w.ContributorId })
+                            .FirstOrDefaultAsync();
+                        if (ficha?.WorkersEstadoId == WorkersEstadoIds.FinalistaAprobado)
+                            empresaId = ficha.ContributorId;
+                    }
+
                     ctx.SsProgramacionEmo.Add(new SsProgramacionEmo
                     {
                         WorkerId = ent.WorkerId,
@@ -542,6 +589,24 @@ namespace Abril_Backend.Features.Ssoma.SaludOcupacional.Infrastructure.Repositor
                         CreatedAt = DateTimeOffset.UtcNow,
                         UpdatedAt = DateTimeOffset.UtcNow
                     });
+                }
+
+                // Si el EMO ya tiene aptitud definitiva, el requerimiento de Reclutamiento del que
+                // viene la persona tiene que reflejarla: un Observado que quedó Apto (o Apto con
+                // Restricciones) deja el proceso en EMO_OBSERVADO sin forma de llegar a la carta
+                // oferta. Solo actúa con el EMO de Ingreso de un finalista aprobado y es idempotente:
+                // para cualquier otro trabajador, o si el requerimiento ya está en esa fase, no toca
+                // nada. Cuando el EMO sigue Observado, el requerimiento se mueve después, al
+                // registrar la clínica el EMO con la aptitud final (EmoRepository.Create/Update).
+                if (yaResuelto && emo != null)
+                {
+                    var workerEmo = await ctx.Worker.FirstOrDefaultAsync(w => w.Id == emo.WorkerId);
+                    var tipoNombre = await ctx.SsEmoTipo
+                        .Where(t => t.Id == emo.TipoEmoId)
+                        .Select(t => t.Nombre)
+                        .FirstOrDefaultAsync();
+                    if (workerEmo != null)
+                        await _reclutamientoEmo.AplicarAptitudAsync(ctx, workerEmo, tipoNombre, emo.Aptitud, userId);
                 }
             }
 

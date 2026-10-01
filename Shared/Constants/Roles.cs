@@ -55,10 +55,21 @@
         public const string AsistentaSocial                   = "71"; // ASISTENTA SOCIAL
         public const string Prevencionista                    = "72"; // PREVENCIONISTA
         public const string ContratistaSupervisorCampo        = "74"; // CONTRATISTA - SUPERVISOR DE CAMPO
-        public const string AdministradorSolicitudSalidas     = "76"; // ADMINISTRADOR DE SOLICITUD DE SALIDAS
+        // 76 (ADMINISTRADOR DE SOLICITUD DE SALIDAS) y 78 (USUARIO REVISOR DE SALIDAS) eliminados el
+        // 2026-09-29: el acceso a Gestión Administrativa sale de los roles de la función (JEFE, SUB
+        // GERENTE, GERENTE, RESIDENTE, ADMINISTRADOR DE OBRA, CONSOLIDADOR). Ver RolesPorFuncion.
         public const string UsuarioGth                        = "77"; // USUARIO DE GTH
-        public const string UsuarioRevisorSalidas             = "78"; // USUARIO REVISOR DE SALIDAS
         public const string PlaneamientoUdp                   = "80"; // PLANEAMIENTO UDP
+
+        /// <summary>
+        /// Las jefaturas de Gestión Administrativa. JEFE y GERENTE los creó producción (dev se alineó
+        /// con sus ids); SUB GERENTE lo fija <c>20260929_GaRolesPorFuncion.sql</c>. Aprueban salidas,
+        /// revisan planillas, firman consolidados y consolidan lo suyo. Además JEFE elige a los
+        /// consolidadores de oficina central de su área (Revisores de Áreas).
+        /// </summary>
+        public const string Jefe                              = "81"; // JEFE
+        public const string Gerente                           = "82"; // GERENTE
+        public const string SubGerente                        = "94"; // SUB GERENTE
 
         /// <summary>
         /// TESORERO. Alcanza con tenerlo: concede sus features como cualquier otro rol. Durante un
@@ -73,6 +84,21 @@
         /// Alcanza con tenerlo, como el resto: no se le exige ningún puesto ni categoría.
         /// </summary>
         public const string CoordinadorErp                    = "84"; // COORDINADOR ERP
+
+        /// <summary>
+        /// CONSOLIDADOR. Lo administra el sistema (<c>IRolesPorFuncionService</c>): lo tiene exactamente
+        /// quien figura A MANO como consolidador —en Revisores de Áreas o en la ficha de un trabajador—
+        /// y no entra ya a Gestión de Rendiciones y Consolidados por otro rol. Se recalcula cada vez
+        /// que se guardan actores, así que asignarlo a mano desde Seguridad no dura.
+        /// </summary>
+        public const string Consolidador                      = "95"; // CONSOLIDADOR
+
+        /// <summary>
+        /// COORDINADOR DE ADMINISTRACIÓN DE OBRA: las bandejas de Gestión Administrativa para quien
+        /// coordina a los administradores de obra sin ser jefatura (ve las obras por su área,
+        /// «Administración de Obra»). Se asigna a mano; ningún código lo compara.
+        /// </summary>
+        public const string CoordinadorAdministracionObra     = "96"; // COORDINADOR DE ADMINISTRACIÓN DE OBRA
 
         /// <summary>
         /// Los tres roles que administran el Cronograma de Hitos. Sus IDs los fija el SQL

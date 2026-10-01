@@ -14,7 +14,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Applicatio
 
         Task<RevisoresAreaDetalleDto> GetDetalleAsync(int userId, bool verTodas, int areaScopeId, int? projectId);
 
-        /// <summary>Guarda la fila y devuelve su detalle ya recalculado.</summary>
-        Task<RevisoresAreaDetalleDto> GuardarAsync(int userId, int areaScopeId, RevisoresAreaGuardarDto dto);
+        /// <summary>
+        /// Guarda la fila, recalcula los roles que salen de lo asignado a mano (CONSOLIDADOR y la
+        /// jefatura de los aprobadores) y devuelve su detalle ya recalculado.
+        /// </summary>
+        Task<RevisoresAreaDetalleDto> GuardarAsync(int userId, bool verTodas, int areaScopeId, RevisoresAreaGuardarDto dto);
     }
 }

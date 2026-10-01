@@ -95,9 +95,24 @@ namespace Abril_Backend.Application.Services
             await _tokenRepository.SaveAsync();
         }
 
-        public async Task ForgotPassword(ForgotPasswordDTO dto)
+        /// <summary>Autoservicio ("Olvidé mi contraseña" del login): el usuario escribe su correo y, si
+        /// existe una cuenta, le llega el enlace para restablecerla. Nunca revela si el correo existe.</summary>
+        public async Task ForgotPasswordByEmail(string email)
         {
-            var user = await _authRepository.GetUserByIdAsync(dto.UserId);
+            if (string.IsNullOrWhiteSpace(email)) return;
+
+            var user = await _authRepository.GetUserByEmailAsync(email.Trim());
+            if (user == null) return;
+
+            await ForgotPasswordCore(user.Value.UserId, _frontendSettings.CompleteRegistrationUrl);
+        }
+
+        public Task ForgotPassword(ForgotPasswordDTO dto) =>
+            ForgotPasswordCore(dto.UserId, _frontendSettings.SetPasswordUrl);
+
+        private async Task ForgotPasswordCore(int userId, string setPasswordUrl)
+        {
+            var user = await _authRepository.GetUserByIdAsync(userId);
 
             if (user == null)
                 return;
@@ -115,7 +130,7 @@ namespace Abril_Backend.Application.Services
                 CreatedDateTime = DateTime.UtcNow
             });
 
-            var link = $"{_frontendSettings.SetPasswordUrl}?token={token}";
+            var link = $"{setPasswordUrl}?token={token}";
 
             var body = $@"
                 <p>Estimado usuario,</p>

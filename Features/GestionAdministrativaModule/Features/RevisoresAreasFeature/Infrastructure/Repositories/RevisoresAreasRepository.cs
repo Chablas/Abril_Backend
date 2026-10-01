@@ -21,8 +21,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
     /// <see cref="IActoresResolver"/>, el mismo que decide a quién se le manda cada correo: la
     /// pantalla no puede mostrar a alguien distinto de quien va a actuar.
     ///
-    /// Visibilidad: ADMINISTRADOR DE SOLICITUD DE SALIDAS y USUARIO DE GTH ven todas las áreas y las
-    /// editan; una jefatura (<c>CategoriaIds.ConVistaDeSuArea</c>) ve solo su área, sin editar.
+    /// Alcance: ADMINISTRADOR DEL SISTEMA y USUARIO DE GTH ven todas las áreas y editan todo. Un JEFE
+    /// ve su área y elige a sus consolidadores de oficina central —solo esa celda, y entre la gente de
+    /// su área—; el resto de las jefaturas (<c>CategoriaIds.ConVistaDeSuArea</c>) ve su área, sin editar.
     /// </summary>
     public class RevisoresAreasRepository : IRevisoresAreasRepository
     {
@@ -44,14 +45,15 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
             using var ctx = _factory.CreateDbContext();
 
             var nodos = await AreaAsignacionNodos.LoadNodosAsync(ctx);
-            var elegibles = await ElegiblesAsync(ctx, userId, verTodas, nodos);
+            var alcance = await AlcanceAsync(ctx, userId, verTodas, nodos);
+            var elegibles = alcance.Visibles;
 
             var (actores, casos) = await CatalogosAsync(ctx);
             var resultado = new RevisoresAreasInicialDto
             {
                 Actores = actores,
                 Casos = casos,
-                PuedeEditar = verTodas,
+                PuedeEditar = alcance.AdministraTodo || alcance.DelJefe.Count > 0,
             };
             if (elegibles.Count == 0) return resultado;
 
@@ -84,16 +86,24 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
 
             var obras = (await ObrasLoader.Obras(ctx).Select(p => p.ProjectId).ToListAsync()).ToHashSet();
 
-            // Las subfilas: todas las obras activas, como cuando se marcaba la casilla, más las
-            // ubicaciones donde el área tiene gente o algo personalizado aunque el proyecto ya no
-            // esté activo (si no, esa configuración quedaría sin dónde verse).
+            // Las subfilas: todas las obras activas y OFICINA CENTRAL, como cuando se marcaba la
+            // casilla, más las ubicaciones donde el área tiene gente o algo personalizado aunque el
+            // proyecto ya no esté activo (si no, esa configuración quedaría sin dónde verse). Un área
+            // interna, la FFT o el proyecto de prueba no tienen subfila: su gente es de oficina central
+            // (ObrasLoader), salvo lo que ya se haya personalizado para ellos.
             var extras = ubicaciones.Values.SelectMany(u => u)
                 .Concat(conObraAsignada.SelectMany(g => g))
                 .Distinct()
                 .ToList();
             var proyectos = await ctx.Project.AsNoTracking()
                 .Where(p => p.State && (p.Active || extras.Contains(p.ProjectId)))
-                .Select(p => new { p.ProjectId, p.ProjectDescription, p.Active })
+                .Select(p => new
+                {
+                    p.ProjectId,
+                    p.ProjectDescription,
+                    p.Active,
+                    Ubicacion = p.ProjectTipoId == ProjectTipoIds.Proyecto || p.ProjectTipoId == ProjectTipoIds.OficinaCentral,
+                })
                 .ToListAsync();
 
             foreach (var area in areas.Where(a => !a.EsGerencia))
@@ -108,7 +118,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
                 if (!area.FiltraPorProyecto) continue;
 
                 area.Proyectos = proyectos
-                    .Where(p => p.Active || suyas.Contains(p.ProjectId) || asignadas.Contains(p.ProjectId))
+                    .Where(p => (p.Ubicacion && (p.Active || suyas.Contains(p.ProjectId)))
+                                || asignadas.Contains(p.ProjectId))
                     .Select(p => new RevisoresAreaProyectoDto
                     {
                         ProjectId   = p.ProjectId,
@@ -142,8 +153,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
 
             resultado.Areas = areas;
 
-            // Solo quien edita necesita el selector.
-            if (verTodas)
+            // Solo quien edita necesita el selector: quien administra elige a cualquiera; un jefe, a la
+            // gente de su área.
+            if (alcance.AdministraTodo)
                 resultado.Options = await (
                     from w in ctx.Worker.AsNoTracking()
                     where w.EmailCorporativo != null
@@ -153,6 +165,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
                     orderby per.FullName
                     select new PersonaOpcionDto { WorkerId = w.Id, FullName = per.FullName, Email = w.EmailCorporativo }
                 ).ToListAsync();
+            else if (alcance.DelJefe.Count > 0)
+                resultado.Options = await GenteDeLasAreasAsync(ctx, nodos, alcance.DelJefe);
 
             return resultado;
         }
@@ -165,8 +179,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
             using var ctx = _factory.CreateDbContext();
 
             var nodos = await AreaAsignacionNodos.LoadNodosAsync(ctx);
-            var nodo = (await ElegiblesAsync(ctx, userId, verTodas, nodos))
-                .FirstOrDefault(n => n.AreaScopeId == areaScopeId)
+            var alcance = await AlcanceAsync(ctx, userId, verTodas, nodos);
+            var nodo = alcance.Visibles.FirstOrDefault(n => n.AreaScopeId == areaScopeId)
                 ?? throw new AbrilException("El área no existe o no la puedes ver.", 404);
 
             var (fila, casos) = await DescribirFilaAsync(ctx, nodo, projectId);
@@ -218,7 +232,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
                             Personas   = Personas(r, categorias),
                             Descriptor = r.Descriptor,
                             Origen     = OrigenDeFila(r, areaScopeId, projectId),
-                            Editable   = Aplica(actorId, caso),
+                            Editable   = alcance.PuedeEditar(areaScopeId, actorId, caso),
                             Asignados  = asignados
                                 .Where(a => a.GaActorCasoId == caso && a.GaActorId == actorId)
                                 .Select(a => a.Dto)
@@ -242,7 +256,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
 
         // ══ Guardar una fila ═════════════════════════════════════════════════
 
-        public async Task GuardarAsync(int areaScopeId, RevisoresAreaGuardarDto dto)
+        public async Task GuardarAsync(int userId, bool verTodas, int areaScopeId, RevisoresAreaGuardarDto dto)
         {
             using var ctx = _factory.CreateDbContext();
 
@@ -254,6 +268,16 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
             var projectId = dto?.ProjectId;
             var (_, casosDeLaFila) = await DescribirFilaAsync(ctx, nodo, projectId);
             var celdas = dto?.Celdas ?? new List<CeldaGuardarDto>();
+
+            // Un jefe solo toca los consolidadores de oficina central de su área.
+            var alcance = await AlcanceAsync(ctx, userId, verTodas, nodos);
+            if (!alcance.AdministraTodo)
+            {
+                if (!alcance.DelJefe.Contains(areaScopeId))
+                    throw new AbrilException("Solo puedes editar los consolidadores de tu área.", 403);
+                if (celdas.Any(c => !alcance.PuedeEditar(areaScopeId, c.ActorId, c.CasoId)))
+                    throw new AbrilException("En tu área solo puedes elegir a los consolidadores de oficina central.", 403);
+            }
 
             // ── Validaciones ────────────────────────────────────────────────
             foreach (var celda in celdas)
@@ -294,6 +318,26 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
             var vivas = await ctx.AreaActorAsignacion
                 .Where(a => a.State && a.AreaScopeId == areaScopeId && a.ProjectId == projectId)
                 .ToListAsync();
+
+            // El jefe elige entre la gente de su área. Lo que ya estaba cargado (lo pudo poner quien
+            // administra) se puede conservar o quitar.
+            if (!alcance.AdministraTodo)
+            {
+                var nuevos = celdas
+                    .SelectMany(c => (c.Asignados ?? new List<AsignadoInputDto>())
+                        .Where(d => !vivas.Any(v => v.GaActorCasoId == c.CasoId && v.GaActorId == c.ActorId && v.WorkerId == d.WorkerId))
+                        .Select(d => d.WorkerId))
+                    .Distinct()
+                    .ToList();
+                if (nuevos.Count > 0)
+                {
+                    var deSuArea = (await GenteDeLasAreasAsync(ctx, nodos, alcance.DelJefe))
+                        .Select(o => o.WorkerId)
+                        .ToHashSet();
+                    if (nuevos.Any(id => !deSuArea.Contains(id)))
+                        throw new AbrilException("Solo puedes elegir consolidadores entre los trabajadores de tu área.", 400);
+                }
+            }
 
             foreach (var celda in celdas)
             {
@@ -344,19 +388,62 @@ namespace Abril_Backend.Features.GestionAdministrativa.RevisoresAreas.Infrastruc
         // ══ Helpers ═════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Los nodos que el usuario ve: todos los configurables si administra la pantalla; si no,
-        /// solo el área de su jefatura (o ninguno).
+        /// Lo que el usuario puede hacer en la pantalla: qué filas ve, de cuáles es el jefe y si
+        /// administra todo.
         /// </summary>
-        private static async Task<List<AreaAsignacionNodos.NodoArea>> ElegiblesAsync(
+        private sealed record Alcance(
+            List<AreaAsignacionNodos.NodoArea> Visibles, HashSet<int> DelJefe, bool AdministraTodo)
+        {
+            /// <summary>
+            /// Si puede personalizar una celda: quien administra, todas las que aplican; un jefe, solo
+            /// los consolidadores de oficina central de su área.
+            /// </summary>
+            public bool PuedeEditar(int areaScopeId, int actorId, int casoId) => AdministraTodo
+                ? Aplica(actorId, casoId)
+                : DelJefe.Contains(areaScopeId)
+                  && actorId == ActorIds.Consolidador
+                  && casoId == ActorCasoIds.OficinaCentral;
+        }
+
+        /// <summary>
+        /// Todos los nodos configurables si administra la pantalla; si no, los de su jefatura (ver
+        /// <see cref="AreaAsignacionNodos.AlcanceDelUsuarioAsync"/>), o ninguno.
+        /// </summary>
+        private static async Task<Alcance> AlcanceAsync(
             AppDbContext ctx, int userId, bool verTodas, List<AreaAsignacionNodos.NodoArea> nodos)
         {
-            var elegibles = AreaAsignacionNodos.Configurables(nodos);
-            if (verTodas) return elegibles;
+            var configurables = AreaAsignacionNodos.Configurables(nodos);
+            if (verTodas) return new Alcance(configurables, new HashSet<int>(), AdministraTodo: true);
 
-            var areaVisible = await AreaAsignacionNodos.AreaVisibleDelUsuarioAsync(ctx, userId, nodos, elegibles);
-            return areaVisible == null
-                ? new List<AreaAsignacionNodos.NodoArea>()
-                : elegibles.Where(n => n.AreaScopeId == areaVisible.Value).ToList();
+            var suyo = await AreaAsignacionNodos.AlcanceDelUsuarioAsync(ctx, userId, nodos, configurables);
+            return new Alcance(
+                configurables.Where(n => suyo.Visibles.Contains(n.AreaScopeId)).ToList(),
+                suyo.DelJefe,
+                AdministraTodo: false);
+        }
+
+        /// <summary>
+        /// Las personas que un jefe puede elegir: las fichas vivas y adentro, con correo corporativo,
+        /// cuyo puesto cae en sus áreas o en alguna de sus subáreas.
+        /// </summary>
+        private static async Task<List<PersonaOpcionDto>> GenteDeLasAreasAsync(
+            AppDbContext ctx, List<AreaAsignacionNodos.NodoArea> nodos, IEnumerable<int> areas)
+        {
+            var subarbol = AreaAsignacionNodos.Subarbol(nodos, areas);
+            return await (
+                from w in ctx.Worker.AsNoTracking()
+                where w.State
+                      && WorkersEstadoIds.EstanAdentro.Contains(w.WorkersEstadoId)
+                      && w.EmailCorporativo != null
+                      && w.EmailCorporativo.Trim().ToLower().EndsWith(EmailDomainCorp)
+                      && w.PuestoCatalogo != null
+                      && w.PuestoCatalogo.AreaDestinoScopeId != null
+                      && subarbol.Contains(w.PuestoCatalogo.AreaDestinoScopeId.Value)
+                join per in ctx.Person.AsNoTracking() on w.PersonId equals per.PersonId
+                where per.State == true
+                orderby per.FullName
+                select new PersonaOpcionDto { WorkerId = w.Id, FullName = per.FullName, Email = w.EmailCorporativo }
+            ).ToListAsync();
         }
 
         /// <summary>

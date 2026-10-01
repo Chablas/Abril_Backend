@@ -201,22 +201,5 @@ namespace Abril_Backend.Features.AuthModule.MicrosoftLogin.Infrastructure.Reposi
                 .FirstOrDefaultAsync();
         }
 
-        public async Task<bool> IsAreaRevisorByPersonIdAsync(int personId)
-        {
-            using var ctx = _factory.CreateDbContext();
-
-            // Asignado a mano en Revisores de Áreas para aprobar salidas, vivo y activo: mismo
-            // criterio con el que el resolver de los actores lo elige y con el que
-            // SalidaVisibilityResolver le da visibilidad de su área. No se filtra por el estado de la
-            // ficha a propósito: la designación es la que manda, igual que en esos dos.
-            return await (
-                from a in ctx.AreaActorAsignacion.AsNoTracking()
-                where a.State && a.Active && a.GaActorId == ActorIds.AprobadorSalida
-                join w in ctx.Worker.AsNoTracking() on a.WorkerId equals w.Id
-                where w.PersonId == personId
-                select a.AreaActorAsignacionId
-            ).AnyAsync();
-        }
-
     }
 }

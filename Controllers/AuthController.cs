@@ -77,6 +77,22 @@ namespace Abril_Backend.Controllers
             }
         }
 
+        /// <summary>"Olvidé mi contraseña" desde el login — respuesta genérica siempre (no revela si el correo existe).</summary>
+        [AllowAnonymous]
+        [HttpPost("forgot-password-email")]
+        public async Task<IActionResult> ForgotPasswordByEmail(ForgotPasswordByEmailDTO dto)
+        {
+            try
+            {
+                await _authService.ForgotPasswordByEmail(dto.Email);
+            }
+            catch (Exception)
+            {
+                // Mismo mensaje aunque falle (p. ej. el envío del correo): no filtrar información de la cuenta.
+            }
+            return Ok(new { message = "Si el correo existe, recibirás un enlace para restablecer tu contraseña." });
+        }
+
         [HttpPost("forgot-password")]
         public async Task<IActionResult> ForgotPassword(ForgotPasswordDTO dto)
         {

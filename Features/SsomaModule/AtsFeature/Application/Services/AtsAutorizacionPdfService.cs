@@ -22,7 +22,7 @@ public static class AtsAutorizacionPdfService
     private const string Codigo = "SSO-FO-151";
     private const string Titulo = "AUTORIZACIÓN DE USO DE FIRMA DIGITAL E IMAGEN — ATS DIGITAL";
 
-    public static byte[] GenerarPdf(string nombre, string? dni, byte[]? logoBytes, byte[]? firmaDigitalBytes)
+    public static byte[] GenerarPdf(string nombre, string? dni, byte[]? logoBytes, byte[]? firmaDigitalBytes, string? emailPersonal = null)
     {
         return Document.Create(container =>
         {
@@ -33,7 +33,7 @@ public static class AtsAutorizacionPdfService
                 page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(9).FontColor(TextMain));
 
                 page.Header().Element(c => ComposeHeader(c, logoBytes));
-                page.Content().PaddingTop(12).Element(c => ComposeBody(c, nombre, dni, firmaDigitalBytes));
+                page.Content().PaddingTop(12).Element(c => ComposeBody(c, nombre, dni, firmaDigitalBytes, emailPersonal));
 
                 page.Footer().AlignCenter().PaddingTop(6).Text(t =>
                 {
@@ -88,7 +88,7 @@ public static class AtsAutorizacionPdfService
         });
     }
 
-    private static void ComposeBody(IContainer container, string nombre, string? dni, byte[]? firmaDigitalBytes)
+    private static void ComposeBody(IContainer container, string nombre, string? dni, byte[]? firmaDigitalBytes, string? emailPersonal)
     {
         container.Column(col =>
         {
@@ -144,6 +144,17 @@ public static class AtsAutorizacionPdfService
                       "documento, el cual — una vez firmado en físico — será escaneado y cargado al sistema por " +
                       "mi Coordinador SSOMA como evidencia de mi conformidad. No podré crear ni firmar ningún " +
                       "ATS digital hasta que esta evidencia esté registrada.");
+
+                    // Solo Capataz / Maestro de obra: firman por toda la cuadrilla, así que además se les
+                    // crea una cuenta propia con contraseña. Se declara el correo al que llegarán.
+                    if (!string.IsNullOrWhiteSpace(emailPersonal))
+                    {
+                        P($"6. Que designo el correo electrónico {emailPersonal} como mi correo PERSONAL, de uso " +
+                          "exclusivo mío, y autorizo a Abril Grupo Inmobiliario a enviarle el enlace para generar la " +
+                          "contraseña de mi cuenta en el sistema. Declaro que soy el único que accede a dicho correo " +
+                          "y me comprometo a no compartir mi contraseña: toda firma que se registre con mi cuenta " +
+                          "(como Capataz / Maestro de obra, en nombre de toda una cuadrilla) me será atribuible.");
+                    }
                 });
             });
 

@@ -56,9 +56,32 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetInit"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>Pasos para un puesto ARBITRARIO — lo usa el wizard de ATS Grupal (logueado y
+        /// público) cuando el creador elige el puesto/tipo de trabajo de la cuadrilla, que puede
+        /// ser distinto al suyo. [AllowAnonymous] porque el wizard público lo necesita igual.</summary>
+        [HttpGet("pasos-por-puesto/{puestoId:int}")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetPasosPorPuesto(int puestoId, [FromQuery] int workerId)
+        {
+            try
+            {
+                // Logueado: el worker sale del JWT (el query param viene en 0). Público: lo manda
+                // el wizard tras identificarse — solo decide si se incluyen Gabinete/Supervisión.
+                if (workerId == 0 && User.Identity?.IsAuthenticated == true)
+                    workerId = await _service.ResolverWorkerId(CurrentUserId());
+                return Ok(await _service.GetPasosPorPuesto(puestoId, workerId));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetPasosPorPuesto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         public class CrearPasoRequest { public int CategoriaId { get; set; } public string Texto { get; set; } = string.Empty; }
 
+        /// <summary>[AllowAnonymous] porque el wizard público de creación de ATS grupal (sin login,
+        /// ver GetInitPublico/CrearGrupoPublico) reutiliza el mismo componente que el wizard
+        /// logueado — no es sensible, solo agrega un texto de paso al catálogo compartido.</summary>
         [HttpPost("pasos")]
+        [AllowAnonymous]
         public async Task<IActionResult> CrearPasoPersonalizado([FromBody] CrearPasoRequest body)
         {
             try { return Ok(await _service.CrearPasoPersonalizado(body.CategoriaId, body.Texto)); }
@@ -130,6 +153,23 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.Firmar"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>
+        /// Firma de "Capataz" (Capataz / Maestro de obra) — primer nivel de la cadena, solo
+        /// aplica cuando el ejecutante es obrero de obra. Adicional a la del ejecutante, que ya
+        /// debe estar firmada. Sin selfie ni geo: es una validación documental.
+        /// </summary>
+        [HttpPost("{id:int}/firmar-capataz")]
+        public async Task<IActionResult> FirmarCapataz(int id, [FromBody] AtsFirmarVistoRequestDto body)
+        {
+            try
+            {
+                await _service.FirmarCapataz(id, CurrentUserId(), EsAdmin(), body);
+                return Ok(new { message = "Firmado como Capataz." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.FirmarCapataz"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         /// <summary>
@@ -535,6 +575,33 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetPlantillaAutorizacionPdf"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>Capataz/Maestro de obra: registra su correo personal + la aceptación de la declaración
+        /// (impresa en el PDF). Se hace ANTES de descargar la plantilla.</summary>
+        [HttpPost("trabajadores/{workerId:int}/autorizacion/email")]
+        public async Task<IActionResult> GuardarEmailPersonalAutorizacion(int workerId, [FromBody] AtsAutorizacionEmailRequestDto dto)
+        {
+            try
+            {
+                await _service.GuardarEmailPersonalAutorizacion(workerId, dto);
+                return Ok(new { message = "Correo registrado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GuardarEmailPersonalAutorizacion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Reintenta crear la cuenta del Capataz/Maestro (por si falló al subir la autorización).</summary>
+        [HttpPost("trabajadores/{workerId:int}/autorizacion/crear-cuenta")]
+        public async Task<IActionResult> CrearCuentaCapataz(int workerId)
+        {
+            try
+            {
+                await _service.CrearCuentaCapataz(workerId);
+                return Ok(new { message = "Cuenta creada — se envió el correo para generar la contraseña." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.CrearCuentaCapataz"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPost("trabajadores/{workerId:int}/autorizacion")]
         public async Task<IActionResult> SubirAutorizacionPermiso(int workerId, IFormFile archivo)
         {
@@ -549,6 +616,161 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.SubirAutorizacionPermiso"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // ── ATS Grupal ────────────────────────────────────────────────────────
+
+        /// <summary>Crea el contenido compartido de la cuadrilla (mismo wizard de datos/pasos/
+        /// peligros/valoración) y devuelve el QR token para que cada integrante se adhiera solo.</summary>
+        [HttpPost("grupo")]
+        public async Task<IActionResult> CrearGrupo([FromBody] AtsGuardarRequestDto dto)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                return Ok(await _service.CrearGrupo(workerId, dto));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.CrearGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Panel del autor: cuántos de la cuadrilla ya firmaron.</summary>
+        [HttpGet("grupo/{id:int}/estado")]
+        public async Task<IActionResult> GetEstadoGrupo(int id)
+        {
+            try
+            {
+                var userId = CurrentUserId();
+                var workerId = await _service.ResolverWorkerId(userId);
+                return Ok(await _service.GetEstadoGrupo(id, workerId, EsAdmin()));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetEstadoGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>El autor cierra el ATS grupal manualmente (deja de aceptar adhesiones nuevas) —
+        /// los ATS ya adheridos no se ven afectados.</summary>
+        [HttpPost("grupo/{id:int}/cerrar")]
+        public async Task<IActionResult> CerrarGrupo(int id)
+        {
+            try
+            {
+                var userId = CurrentUserId();
+                var workerId = await _service.ResolverWorkerId(userId);
+                await _service.CerrarGrupo(id, workerId, EsAdmin());
+                return Ok(new { message = "ATS grupal cerrado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.CerrarGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // ── Página pública de adhesión (QR) — SIN login, el token es el único candado ──────
+
+        [HttpGet("grupo/publico/{token:guid}/resumen")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetResumenPublico(Guid token)
+        {
+            try { return Ok(await _service.GetResumenPublico(token)); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetResumenPublico"); return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        [HttpGet("grupo/publico/{token:guid}/trabajadores")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetWorkersParaAdhesion(Guid token)
+        {
+            try { return Ok(await _service.GetWorkersParaAdhesion(token)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetWorkersParaAdhesion"); return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        [HttpPost("grupo/publico/{token:guid}/unirse")]
+        [AllowAnonymous]
+        public async Task<IActionResult> UnirseAGrupo(Guid token, [FromBody] AtsGrupoUnirseRequestDto body)
+        {
+            try
+            {
+                var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var userAgent = Request.Headers.UserAgent.ToString();
+                var id = await _service.UnirseAGrupo(token, body, ip, userAgent);
+                return Ok(new { id, message = "ATS firmado correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.UnirseAGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // ── Firma única del Capataz por cuadrilla — SIN login, el token del grupo es el candado ──
+
+        /// <summary>Capataz/Maestro con cuenta: firma el grupo completo (una vez por cuadrilla) desde la plataforma.</summary>
+        [HttpPost("grupo/{id:int}/firmar-capataz")]
+        public async Task<IActionResult> FirmarCapatazGrupoLogueado(int id, [FromBody] AtsFirmarVistoRequestDto body)
+        {
+            try
+            {
+                await _service.FirmarCapatazGrupoLogueado(id, CurrentUserId(), EsAdmin(), body);
+                return Ok(new { message = "Firmado como Capataz." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.FirmarCapatazGrupoLogueado"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("grupo/publico/{token:guid}/capataz")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetCapatazPublico(Guid token)
+        {
+            try { return Ok(await _service.GetCapatazPublico(token)); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetCapatazPublico"); return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        [HttpPost("grupo/publico/{token:guid}/capataz/firmar")]
+        [AllowAnonymous]
+        public async Task<IActionResult> FirmarCapatazPublico(Guid token, [FromBody] AtsGrupoCapatazFirmarRequestDto body)
+        {
+            try
+            {
+                await _service.FirmarCapatazPublico(token, body);
+                return Ok(new { message = "Firmado como Capataz." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.FirmarCapatazPublico"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // ── QR fijo por proyecto — crear ATS grupal SIN login (cualquier integrante de la
+        // cuadrilla, incluso sin cuenta en la plataforma) ──────────────────────────────────
+
+        /// <summary>Idempotente: SSOMA/Residente lo piden una vez por proyecto, lo imprimen/pegan
+        /// en la obra. El frontend arma la URL pública con este token.</summary>
+        [HttpGet("grupo/proyecto-qr/{proyectoId:int}")]
+        public async Task<IActionResult> GetQrProyecto(int proyectoId)
+        {
+            try { return Ok(new { token = await _service.GetOrCrearQrProyecto(proyectoId) }); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetQrProyecto"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("grupo/publico/proyecto/{token:guid}/resumen")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetResumenProyectoPublico(Guid token)
+        {
+            try { return Ok(await _service.GetResumenProyectoPublico(token)); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetResumenProyectoPublico"); return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        [HttpPost("grupo/publico/proyecto/{token:guid}/init")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetInitPublico(Guid token, [FromBody] AtsGrupoInitPublicoRequestDto body)
+        {
+            try { return Ok(await _service.GetInitPublico(token, body)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetInitPublico"); return StatusCode(500, new { message = "Error del servidor." }); }
+        }
+
+        [HttpPost("grupo/publico/proyecto/{token:guid}/crear")]
+        [AllowAnonymous]
+        public async Task<IActionResult> CrearGrupoPublico(Guid token, [FromBody] AtsGrupoCrearPublicoRequestDto body)
+        {
+            try { return Ok(await _service.CrearGrupoPublico(token, body)); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.CrearGrupoPublico"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
     }
 }

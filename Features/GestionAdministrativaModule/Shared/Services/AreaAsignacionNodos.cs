@@ -5,8 +5,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
 {
     /// <summary>
-    /// Qué nodos del árbol de áreas se pueden configurar en Revisores de Áreas y cuál de ellos ve un
-    /// usuario que no administra la pantalla.
+    /// Qué nodos del árbol de áreas se pueden configurar en Revisores de Áreas y cuáles ve (y edita,
+    /// si es jefe) un usuario que no administra la pantalla.
     /// </summary>
     public static class AreaAsignacionNodos
     {
@@ -63,30 +63,73 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             return false;
         }
 
+        /// <summary>Nodos configurables (area_scope_id) que ve un usuario y, de esos, los de su jefatura.</summary>
+        public sealed record AlcanceUsuario(HashSet<int> Visibles, HashSet<int> DelJefe);
+
         /// <summary>
-        /// area_scope_id (de los nodos configurables) que el usuario puede ver, o null si no puede
-        /// ver ninguno. Solo ven su área los trabajadores de las categorías
-        /// <see cref="CategoriaIds.ConVistaDeSuArea"/> (Jefe, Coordinador o Gerente): se parte del
-        /// área del trabajador (la de destino de su puesto) y se sube el árbol hasta el primer nodo
-        /// listado (un gerente colgado directamente de su gerencia resuelve a esa gerencia).
+        /// Qué nodos configurables ve y cuáles edita un usuario que NO administra la pantalla. Se parte
+        /// del área de cada ficha viva y adentro (la de destino de su puesto) y se sube el árbol hasta
+        /// el primer nodo listado (un gerente colgado directamente de su gerencia resuelve a esa
+        /// gerencia):
+        ///   • <c>Visibles</c>: las fichas de <see cref="CategoriaIds.ConVistaDeSuArea"/> (Sub Gerente,
+        ///     Jefe, Coordinador o Gerente) ven su área, en lectura.
+        ///   • <c>DelJefe</c>: las de categoría JEFE, además, eligen a los consolidadores de oficina
+        ///     central de su área. Solo áreas estándar: la gerencia es de su gerente.
         /// </summary>
-        public static async Task<int?> AreaVisibleDelUsuarioAsync(
+        public static async Task<AlcanceUsuario> AlcanceDelUsuarioAsync(
             AppDbContext ctx, int userId, List<NodoArea> nodos, List<NodoArea> configurables)
         {
-            var areaScopeWorker = await (
+            var fichas = await (
                 from w in ctx.Worker
                 where w.Person != null && w.Person.UserId == userId
+                    && w.State
+                    && WorkersEstadoIds.EstanAdentro.Contains(w.WorkersEstadoId)
                     && w.PuestoCatalogo != null
                     && w.PuestoCatalogo.AreaDestinoScopeId != null
                     && CategoriaIds.ConVistaDeSuArea.Contains(w.PuestoCatalogo.CategoriaId)
-                select w.PuestoCatalogo.AreaDestinoScopeId
-            ).FirstOrDefaultAsync();
-            if (areaScopeWorker == null) return null;
+                select new { Area = w.PuestoCatalogo.AreaDestinoScopeId!.Value, w.PuestoCatalogo.CategoriaId }
+            ).ToListAsync();
 
             var byId = nodos.ToDictionary(n => n.AreaScopeId);
             var configurablesIds = configurables.Select(n => n.AreaScopeId).ToHashSet();
+            var alcance = new AlcanceUsuario(new HashSet<int>(), new HashSet<int>());
+
+            foreach (var ficha in fichas)
+            {
+                var nodo = PrimerConfigurable(ficha.Area, byId, configurablesIds);
+                if (nodo == null) continue;
+
+                alcance.Visibles.Add(nodo.Value);
+                if (ficha.CategoriaId == CategoriaIds.Jefe && byId[nodo.Value].AreaTypeName == AreaTypeEstandar)
+                    alcance.DelJefe.Add(nodo.Value);
+            }
+            return alcance;
+        }
+
+        /// <summary>El propio nodo y todos sus descendientes, de cada nodo pedido.</summary>
+        public static List<int> Subarbol(List<NodoArea> nodos, IEnumerable<int> raices)
+        {
+            var hijos = nodos
+                .Where(n => n.AreaScopeParentId != null)
+                .GroupBy(n => n.AreaScopeParentId!.Value)
+                .ToDictionary(g => g.Key, g => g.Select(n => n.AreaScopeId).ToList());
+
+            var resultado = new HashSet<int>();
+            var pendientes = new Stack<int>(raices);
+            while (pendientes.Count > 0)
+            {
+                var actual = pendientes.Pop();
+                if (!resultado.Add(actual)) continue;
+                if (hijos.TryGetValue(actual, out var deEste))
+                    foreach (var h in deEste) pendientes.Push(h);
+            }
+            return resultado.ToList();
+        }
+
+        private static int? PrimerConfigurable(int desde, Dictionary<int, NodoArea> byId, HashSet<int> configurablesIds)
+        {
             var visitados = new HashSet<int>();
-            int? actual = areaScopeWorker;
+            int? actual = desde;
             while (actual != null && visitados.Add(actual.Value))
             {
                 if (configurablesIds.Contains(actual.Value)) return actual.Value;
@@ -94,6 +137,5 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Services
             }
             return null;
         }
-
     }
 }

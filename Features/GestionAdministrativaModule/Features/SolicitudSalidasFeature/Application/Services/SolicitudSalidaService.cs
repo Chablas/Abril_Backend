@@ -761,7 +761,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
             var body    = SolicitudSalidaEmailTemplates.PorAprobar(
                 SalidaEmailLayout.Desde(_configuration), datos,
                 urlAprobar, urlRechazar, SalidaEnlaces.Gestion(_configuration, solicitud.Id));
-            var subject = $"Solicitud de salida {datos.Codigo} - {nombreSolicitante} - {solicitud.FechaSalida:dd/MM/yyyy}";
+            var subject = CorreoSalidaAsuntos.Revisor(datos.Codigo, nombreSolicitante, solicitud.FechaSalida);
 
             await _emailService.SendAsync(
                 to: envio.Para,
@@ -851,7 +851,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                                     solicitud.FechaSalida, trayectos, mostrarRecordatorio);
             var body    = SolicitudSalidaEmailTemplates.InformativaJefeArea(
                 SalidaEmailLayout.Desde(_configuration), datos, revisor.Nombre);
-            var subject = $"Salida registrada en tu área - {datos.Codigo} - {nombreSolicitante} - {solicitud.FechaSalida:dd/MM/yyyy}";
+            var subject = CorreoSalidaAsuntos.RevisorJefeArea(datos.Codigo, nombreSolicitante, solicitud.FechaSalida);
 
             await _emailService.SendAsync(
                 to: envio.Para,
@@ -936,7 +936,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.SolicitudSalidas.Applicat
                 SalidaEmailLayout.Desde(_configuration), datos,
                 SalidaEnlaces.Autoservicio(_configuration, solicitud.Id),
                 enviadoRevisorA, aprobadorEmail);
-            var subject = $"Tu solicitud de salida {codigoSolicitud} está en revisión - {solicitud.FechaSalida:dd/MM/yyyy}";
+            var subject = CorreoSalidaAsuntos.Confirmacion(codigoSolicitud, solicitud.FechaSalida);
 
             await _emailService.SendAsync(
                 to: envio.Para,

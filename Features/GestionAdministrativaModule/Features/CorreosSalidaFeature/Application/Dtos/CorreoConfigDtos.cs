@@ -22,6 +22,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
         public string? Descripcion { get; set; }
         public int Orden { get; set; }
 
+        /// <summary>
+        /// El asunto con que sale (<c>CorreoSalidaAsuntos.Plantilla</c>), para buscarlo en Enviados.
+        /// Lo que cambia en cada envío va entre llaves. Null = ese correo todavía no lo tiene.
+        /// </summary>
+        public string? Asunto { get; set; }
+
         /// <summary>Interruptor maestro: false = este correo no se envía a nadie.</summary>
         public bool Active { get; set; } = true;
 

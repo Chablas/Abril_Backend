@@ -20,7 +20,8 @@ public static class AtsPdfService
 
     public static byte[] Generar(
         AtsResponseDto ats, byte[]? selfieBytes, byte[]? firmaBytes, string verificacionUrl,
-        byte[]? firmaAutorizaBytes = null, byte[]? firmaSsomaBytes = null, byte[]? logoBytes = null)
+        byte[]? firmaAutorizaBytes = null, byte[]? firmaSsomaBytes = null, byte[]? logoBytes = null,
+        byte[]? firmaCapatazBytes = null)
     {
         byte[]? qrBytes = null;
         using (var generator = new QRCodeGenerator())
@@ -130,6 +131,8 @@ public static class AtsPdfService
                     col.Item().Row(row =>
                     {
                         row.RelativeItem().Element(c => FirmaBloque(c, "Ejecutante", ats.WorkerNombre, ats.PuestoNombre, ats.HoraServidorFirma, firmaBytes));
+                        if (ats.RequiereCapataz)
+                            row.RelativeItem().Element(c => FirmaBloque(c, "Capataz / Maestro de Obra", ats.CapatazNombre, ats.CapatazCargo, ats.CapatazHoraServidor, firmaCapatazBytes));
                         row.RelativeItem().Element(c => FirmaBloque(c, "Autoriza (Residente / Ing. Producción)", ats.AutorizaNombre, ats.AutorizaCargo, ats.AutorizaHoraServidor, firmaAutorizaBytes));
                         row.RelativeItem().Element(c => FirmaBloque(c, "Visto Bueno SSOMA", ats.SsomaNombre, ats.SsomaCargo, ats.SsomaHoraServidor, firmaSsomaBytes));
                     });

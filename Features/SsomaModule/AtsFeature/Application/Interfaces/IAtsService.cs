@@ -6,6 +6,7 @@ public interface IAtsService
 {
     Task<int> ResolverWorkerId(int userId);
     Task<AtsInitDto> GetInit(int workerId);
+    Task<List<AtsCategoriaPasoDto>> GetPasosPorPuesto(int puestoId, int workerId);
     Task<AtsPasoDto> CrearPasoPersonalizado(int categoriaId, string texto);
 
     Task<int> Crear(int workerId, AtsGuardarRequestDto dto);
@@ -14,6 +15,7 @@ public interface IAtsService
     Task<AtsListResponseDto> Listar(AtsFiltroDto filtro, int callerUserId, int workerId, bool esAdmin);
 
     Task Firmar(int id, int workerId, AtsFirmarRequestDto body, string? ipOrigen, string? userAgent);
+    Task FirmarCapataz(int id, int callerUserId, bool esAdmin, AtsFirmarVistoRequestDto body);
     Task FirmarAutorizacion(int id, int callerUserId, bool esAdmin, AtsFirmarVistoRequestDto body);
     Task FirmarVistoSsoma(int id, int callerUserId, bool esAdmin, AtsFirmarVistoRequestDto body);
     Task<byte[]> GenerarPdf(int id);
@@ -49,10 +51,30 @@ public interface IAtsService
 
     // ── Autorización de uso de firma digital e imagen (firmada en físico) — gate para poder hacer ATS ────
     Task<bool> TieneAutorizacionPermiso(int workerId);
+    Task GuardarEmailPersonalAutorizacion(int workerId, AtsAutorizacionEmailRequestDto body);
+    Task CrearCuentaCapataz(int workerId);
     Task<List<AtsAutorizacionTrabajadorDto>> GetTrabajadoresParaAutorizacion();
     Task SubirAutorizacionPermiso(int workerId, Stream archivo, string nombreArchivo, int subidoPorUserId);
     Task CapturarFirmaDigitalAutorizacion(int workerId, AtsAutorizacionFirmaDigitalRequestDto body, int capturadoPorUserId);
     Task<(string? FirmaDigitalUrl, string? Nombre, string? Dni)> GetFirmaDigitalAutorizacion(int workerId);
     Task<byte[]?> GetFirmaDigitalAutorizacionImagen(int workerId);
     Task<byte[]> GenerarPlantillaAutorizacionPdf(int workerId);
+
+    // ── ATS Grupal ────────────────────────────────────────────────────────
+    Task<AtsGrupoCrearResponseDto> CrearGrupo(int workerId, AtsGuardarRequestDto dto);
+    Task<AtsGrupoEstadoDto> GetEstadoGrupo(int id, int workerId, bool esAdmin);
+    Task CerrarGrupo(int id, int workerId, bool esAdmin);
+    Task<AtsGrupoResumenPublicoDto> GetResumenPublico(Guid token);
+    Task<List<AtsGrupoWorkerOpcionDto>> GetWorkersParaAdhesion(Guid token);
+    Task<int> UnirseAGrupo(Guid token, AtsGrupoUnirseRequestDto body, string? ipOrigen, string? userAgent);
+
+    Task<AtsGrupoCapatazPublicoDto> GetCapatazPublico(Guid token);
+    Task FirmarCapatazPublico(Guid token, AtsGrupoCapatazFirmarRequestDto body);
+    Task FirmarCapatazGrupoLogueado(int grupoId, int callerUserId, bool esAdmin, AtsFirmarVistoRequestDto body);
+
+    // ── QR fijo por proyecto (crear ATS Grupal sin login) ───────────────────
+    Task<string> GetOrCrearQrProyecto(int proyectoId);
+    Task<AtsGrupoProyectoPublicoDto> GetResumenProyectoPublico(Guid tokenProyecto);
+    Task<AtsInitDto> GetInitPublico(Guid tokenProyecto, AtsGrupoInitPublicoRequestDto body);
+    Task<AtsGrupoCrearResponseDto> CrearGrupoPublico(Guid tokenProyecto, AtsGrupoCrearPublicoRequestDto body);
 }

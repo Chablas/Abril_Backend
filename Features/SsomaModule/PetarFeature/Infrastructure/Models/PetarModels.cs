@@ -98,15 +98,90 @@ public class SsPetar
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Presente cuando este PETAR nació de "adherirse" a un PETAR grupal (mismo QR del
+    /// ATS grupal) — el contenido (Respuestas de abajo) es una copia tomada del grupo, y las
+    /// firmas de Supervisor/SSOMA NO viven en este registro individual sino en el grupal
+    /// (SupervisorFirmaUrl/SsomaFirmaUrl de arriba quedan sin usar en ese caso — ver
+    /// PetarRepository.ToDto, que las rellena desde PetarGrupo al armar la respuesta).</summary>
+    public int? PetarGrupoId { get; set; }
+
     public SsAts? Ats { get; set; }
     public SsPetarTipo? Tipo { get; set; }
     public Worker? Worker { get; set; }
     public Worker? SupervisorWorker { get; set; }
     public Worker? SsomaWorker { get; set; }
     public Project? Proyecto { get; set; }
+    public SsPetarGrupo? PetarGrupo { get; set; }
 
     public ICollection<SsPetarItemRespuesta> Respuestas { get; set; } = [];
     public SsPetarIzajeGrua? IzajeGrua { get; set; }
+}
+
+/// <summary>
+/// PETAR GRUPAL: el checklist (tipo de trabajo de alto riesgo, descripción, verificación SI/NO/NA)
+/// se llena UNA sola vez para toda la cuadrilla expuesta a ese riesgo puntual — nace ligado a un
+/// ATS grupal, y puede haber MÁS DE UNO por ATS grupal (ej. Altura Y Espacio Confinado el mismo
+/// día). Supervisor y SSOMA firman UNA vez acá, no una por trabajador. Cada integrante que se
+/// adhiere (mismo QR del ATS, sin escanear nada nuevo) crea su propia fila en <see cref="SsPetar"/>
+/// (vía <see cref="SsPetar.PetarGrupoId"/>) con su propia selfie+geo+firma de ejecutante.
+/// </summary>
+public class SsPetarGrupo
+{
+    public int Id { get; set; }
+    public int AtsGrupoId { get; set; }
+    public int TipoId { get; set; }
+    public int ProyectoId { get; set; }
+    public int CreadoPorWorkerId { get; set; }
+
+    public string DescripcionTrabajo { get; set; } = string.Empty;
+    public string? Lugar { get; set; }
+    public DateOnly Fecha { get; set; }
+    public TimeOnly? HoraInicio { get; set; }
+    public TimeOnly? HoraFin { get; set; }
+
+    /// <summary>"Activo" acepta adhesiones nuevas; "Cerrado" deja de aceptarlas — los PETAR ya
+    /// adheridos no se ven afectados.</summary>
+    public string Estado { get; set; } = "Activo";
+
+    public int? SupervisorWorkerId { get; set; }
+    public string? SupervisorNombre { get; set; }
+    public string? SupervisorCargo { get; set; }
+    public string? SupervisorFirmaUrl { get; set; }
+    public string? SupervisorFirmaHash { get; set; }
+    public DateTime? SupervisorHoraServidor { get; set; }
+
+    public int? SsomaWorkerId { get; set; }
+    public string? SsomaNombre { get; set; }
+    public string? SsomaCargo { get; set; }
+    public string? SsomaFirmaUrl { get; set; }
+    public string? SsomaFirmaHash { get; set; }
+    public DateTime? SsomaHoraServidor { get; set; }
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    public SsAtsGrupo? AtsGrupo { get; set; }
+    public SsPetarTipo? Tipo { get; set; }
+    public Project? Proyecto { get; set; }
+    public Worker? CreadoPorWorker { get; set; }
+    public Worker? SupervisorWorker { get; set; }
+    public Worker? SsomaWorker { get; set; }
+
+    public ICollection<SsPetarGrupoItemRespuesta> Respuestas { get; set; } = [];
+    public ICollection<SsPetar> Adhesiones { get; set; } = [];
+}
+
+/// <summary>Mismo shape que <see cref="SsPetarItemRespuesta"/>, a nivel de grupo.</summary>
+public class SsPetarGrupoItemRespuesta
+{
+    public int Id { get; set; }
+    public int PetarGrupoId { get; set; }
+    public int ItemId { get; set; }
+    public string Texto { get; set; } = string.Empty;
+    public string Respuesta { get; set; } = string.Empty;
+    public short Orden { get; set; }
+
+    public SsPetarGrupo? PetarGrupo { get; set; }
 }
 
 /// <summary>Campos técnicos propios del izaje con grúa (SSO-FO-043) — tipo/modelo/capacidad de la

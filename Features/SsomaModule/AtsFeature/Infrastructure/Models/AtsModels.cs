@@ -278,6 +278,20 @@ public class SsAts
     public string? PdfHash { get; set; }
 
     /// <summary>
+    /// "Capataz" = Capataz / Maestro de obra de la cuadrilla: firma de campo, el primer nivel de
+    /// la cadena. Solo se pide cuando el ejecutante es OBRERO de obra (Worker.ObraOficinaStaffId
+    /// no está en Staff/Oficina Central) — si el propio ejecutante ya es Staff (ej. un capataz
+    /// haciendo su propio ATS), su firma de ejecutante cubre este nivel y no se pide de nuevo
+    /// (evita autovalidación y una firma redundante). Decisión de Samuel 2026-09-30.
+    /// </summary>
+    public int? CapatazWorkerId { get; set; }
+    public string? CapatazNombre { get; set; }
+    public string? CapatazCargo { get; set; }
+    public string? CapatazFirmaUrl { get; set; }
+    public string? CapatazFirmaHash { get; set; }
+    public DateTime? CapatazHoraServidor { get; set; }
+
+    /// <summary>
     /// "Autoriza" = Residente / Ingeniero de Producción del proyecto: firma que la actividad
     /// está planificada y el frente en condiciones. NO reemplaza la firma del ejecutante
     /// (Worker/FirmaUrl), es una firma adicional que se agrega DESPUÉS de que el ejecutante ya
@@ -306,18 +320,148 @@ public class SsAts
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Presente cuando este ATS nació de "unirse" a un ATS grupal (QR) en vez del wizard
+    /// individual completo — su contenido (Pasos/Epps/Herramientas/RiesgosDetalle de abajo) es una
+    /// COPIA tomada del grupo al momento de adherirse, no una referencia viva: si el grupo se
+    /// edita después, este ATS ya firmado no cambia (misma regla de inmutabilidad que siempre).</summary>
+    public int? AtsGrupoId { get; set; }
+
     public Worker? Worker { get; set; }
+    public Worker? CapatazWorker { get; set; }
     public Worker? AutorizaWorker { get; set; }
     public Worker? SsomaWorker { get; set; }
     public Project? Proyecto { get; set; }
     public Puesto? Puesto { get; set; }
     public SsAtsPlantilla? Plantilla { get; set; }
     public SsAts? AtsAnterior { get; set; }
+    public SsAtsGrupo? AtsGrupo { get; set; }
 
     public ICollection<SsAtsPasoSeleccionado> Pasos { get; set; } = [];
     public ICollection<SsAtsEppSeleccionado> Epps { get; set; } = [];
     public ICollection<SsAtsHerramientaSeleccionada> Herramientas { get; set; } = [];
     public ICollection<SsAtsRiesgoDetalle> RiesgosDetalle { get; set; } = [];
+}
+
+/// <summary>
+/// ATS GRUPAL: el contenido (actividad, lugar, pasos, EPP, herramientas, riesgos+valoración) se
+/// llena UNA sola vez para toda la cuadrilla — cualquier trabajador puede crearlo (decisión de
+/// Samuel 2026-09-30: en la práctica cualquiera está en capacidad de hacerlo). Cada integrante de
+/// la cuadrilla no llena nada de esto: solo escanea el QR (<see cref="QrToken"/>) y hace su propia
+/// adhesión liviana (DNI corto + selfie + geolocalización + firma), que crea SU PROPIA fila en
+/// <see cref="SsAts"/> (con <see cref="SsAts.AtsGrupoId"/> apuntando acá) copiando este contenido —
+/// así el resto del sistema (PDF, permisos, listado, PETAR individual) no se entera de la
+/// diferencia, sigue viendo un SsAts normal por persona.
+/// </summary>
+public class SsAtsGrupo
+{
+    public int Id { get; set; }
+    public int CreadoPorWorkerId { get; set; }
+    public int ProyectoId { get; set; }
+    public int? PlantillaId { get; set; }
+
+    public string Actividad { get; set; } = string.Empty;
+    public string? TorreNombre { get; set; }
+    public string? Pisos { get; set; }
+    public string? Lugar { get; set; }
+
+    public DateOnly Fecha { get; set; }
+
+    /// <summary>Token único embebido en el QR/link de adhesión — no requiere login, es el único
+    /// "candado" de acceso a la página de firma liviana. Acotado a este grupo y expira solo.</summary>
+    public Guid QrToken { get; set; } = Guid.NewGuid();
+    public DateTime QrExpiraEn { get; set; }
+
+    /// <summary>"Activo" acepta nuevas adhesiones; "Cerrado" (el autor lo cierra manualmente, o
+    /// expiró el QR) deja de aceptarlas — los ATS ya adheridos no se ven afectados.</summary>
+    public string Estado { get; set; } = "Activo";
+
+    /// <summary>Firma ÚNICA del Capataz/Maestro de obra por cuadrilla (no una por trabajador), vía
+    /// link público sin login. <see cref="CapatazAdhesionesAlFirmar"/> guarda cuántos ya habían
+    /// firmado su adhesión en ese momento: si después se suma alguien, el conteo actual supera ese
+    /// número y la firma queda "pendiente de re-firma" (el capataz debe volver a firmar). Al firmar
+    /// se copia a los SsAts adheridos que todavía no la tenían; los ya firmados conservan su
+    /// firma y hora originales (no se reescriben).</summary>
+    public int? CapatazWorkerId { get; set; }
+    public string? CapatazNombre { get; set; }
+    public string? CapatazCargo { get; set; }
+    public string? CapatazFirmaUrl { get; set; }
+    public string? CapatazFirmaHash { get; set; }
+    public DateTime? CapatazHoraServidor { get; set; }
+    public int? CapatazAdhesionesAlFirmar { get; set; }
+    /// <summary>Evidencia de presencia del Capataz (no tiene cuenta, así que se exige igual que a
+    /// los obreros que se adhieren): selfie + geolocalización + hora del dispositivo.</summary>
+    public string? CapatazSelfieUrl { get; set; }
+    public string? CapatazSelfieHash { get; set; }
+    public decimal? CapatazLat { get; set; }
+    public decimal? CapatazLng { get; set; }
+    public decimal? CapatazPrecisionMetros { get; set; }
+    public DateTime? CapatazHoraDispositivo { get; set; }
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    public Worker? CreadoPorWorker { get; set; }
+    public Project? Proyecto { get; set; }
+    public SsAtsPlantilla? Plantilla { get; set; }
+
+    public ICollection<SsAtsGrupoPasoSeleccionado> Pasos { get; set; } = [];
+    public ICollection<SsAtsGrupoEppSeleccionado> Epps { get; set; } = [];
+    public ICollection<SsAtsGrupoHerramientaSeleccionada> Herramientas { get; set; } = [];
+    public ICollection<SsAtsGrupoRiesgoDetalle> RiesgosDetalle { get; set; } = [];
+    public ICollection<SsAts> Adhesiones { get; set; } = [];
+}
+
+/// <summary>Mismo shape que <see cref="SsAtsPasoSeleccionado"/>, a nivel de grupo.</summary>
+public class SsAtsGrupoPasoSeleccionado
+{
+    public int Id { get; set; }
+    public int AtsGrupoId { get; set; }
+    public int? PasoId { get; set; }
+    public string CategoriaNombre { get; set; } = string.Empty;
+    public string Texto { get; set; } = string.Empty;
+    public bool Aplica { get; set; }
+    public short Orden { get; set; }
+
+    public SsAtsGrupo? AtsGrupo { get; set; }
+}
+
+/// <summary>Mismo shape que <see cref="SsAtsEppSeleccionado"/>, a nivel de grupo.</summary>
+public class SsAtsGrupoEppSeleccionado
+{
+    public int Id { get; set; }
+    public int AtsGrupoId { get; set; }
+    public int EppId { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+
+    public SsAtsGrupo? AtsGrupo { get; set; }
+}
+
+/// <summary>Mismo shape que <see cref="SsAtsHerramientaSeleccionada"/>, a nivel de grupo.</summary>
+public class SsAtsGrupoHerramientaSeleccionada
+{
+    public int Id { get; set; }
+    public int AtsGrupoId { get; set; }
+    public int? HerramientaId { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+
+    public SsAtsGrupo? AtsGrupo { get; set; }
+}
+
+/// <summary>Mismo shape que <see cref="SsAtsRiesgoDetalle"/>, a nivel de grupo.</summary>
+public class SsAtsGrupoRiesgoDetalle
+{
+    public int Id { get; set; }
+    public int AtsGrupoId { get; set; }
+    public int PeligroId { get; set; }
+    public int RiesgoId { get; set; }
+    public string PeligroNombre { get; set; } = string.Empty;
+    public string RiesgoNombre { get; set; } = string.Empty;
+    public string RiesgoBase { get; set; } = string.Empty;
+    public string Controles { get; set; } = string.Empty;
+    public string RiesgoResidual { get; set; } = string.Empty;
+    public short Orden { get; set; }
+
+    public SsAtsGrupo? AtsGrupo { get; set; }
 }
 
 /// <summary>
@@ -437,5 +581,29 @@ public class SsAtsAutorizacionPermiso
     public DateTime? FirmadoDigitalEn { get; set; }
     public int? FirmadoDigitalPorUserId { get; set; }
 
+    /// <summary>Solo Capataz/Maestro de obra: correo PERSONAL al que se envían las credenciales de su
+    /// cuenta (firman por toda la cuadrilla, así que no basta DNI+selfie). Va impreso en la
+    /// declaración de este mismo documento firmado en físico; <see cref="EmailDeclaradoEn"/> es
+    /// cuando el Coordinador SSOMA lo registró junto con el aceptado de la declaración.</summary>
+    public string? EmailPersonal { get; set; }
+    public DateTime? EmailDeclaradoEn { get; set; }
+
     public Worker? Worker { get; set; }
+}
+
+/// <summary>QR fijo por proyecto (no expira solo, no está ligado a una jornada ni a una cuadrilla
+/// específica) — se pega/imprime una vez en la obra para que CUALQUIER integrante de una cuadrilla,
+/// incluso sin cuenta en la plataforma, pueda escanearlo y llenar el contenido de un ATS Grupal
+/// nuevo (página pública <c>/ats-grupal/crear/:token</c>) sin necesitar login. Se identifica igual
+/// que la adhesión individual: elige su nombre de la lista de trabajadores YA registrados en ese
+/// proyecto y confirma los últimos dígitos de su DNI — nunca escribe datos libres. Decisión de
+/// Samuel 2026-09-30.</summary>
+public class SsAtsProyectoQr
+{
+    public int Id { get; set; }
+    public int ProyectoId { get; set; }
+    public Guid Token { get; set; } = Guid.NewGuid();
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public Project? Proyecto { get; set; }
 }

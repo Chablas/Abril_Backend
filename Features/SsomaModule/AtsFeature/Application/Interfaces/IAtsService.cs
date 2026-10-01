@@ -13,6 +13,24 @@ public interface IAtsService
     Task Editar(int id, int workerId, AtsGuardarRequestDto dto);
     Task<AtsResponseDto> GetPorId(int id, int callerUserId, int workerId, bool esAdmin);
     Task<AtsListResponseDto> Listar(AtsFiltroDto filtro, int callerUserId, int workerId, bool esAdmin);
+    Task<int> FirmarVistoGrupo(int grupoId, string rol, int callerUserId, bool esAdmin);
+    Task<byte[]> GenerarPdfGrupo(int grupoId, int workerId, bool esAdmin);
+    Task ReabrirGrupo(int grupoId, int workerId, bool esAdmin);
+    Task<int> UnirseAGrupoLogueado(Guid token, int callerUserId, AtsGrupoUnirseRequestDto body, string? ipOrigen, string? userAgent);
+    Task<int?> GetMiAtsLogueado(Guid token, int callerUserId);
+    Task<AtsResponseDto> GetContenidoGrupo(int grupoId, int workerId, bool esAdmin);
+    Task<AtsObservacionesDto> GetObservacionesAts(int atsId, int callerUserId, bool esAdmin);
+    Task<AtsObservacionesDto> GetObservacionesGrupo(int grupoId, int callerUserId, bool esAdmin);
+    Task CrearObservacionAts(int atsId, string texto, int callerUserId, bool esAdmin);
+    Task CrearObservacionGrupo(int grupoId, string texto, int callerUserId, bool esAdmin);
+    Task ResolverObservacion(int observacionId, string respuesta, int callerUserId, bool esAdmin);
+    Task AnularAts(int atsId, string motivo, int callerUserId, bool esAdmin);
+    Task AnularGrupo(int grupoId, string motivo, int callerUserId, bool esAdmin);
+    Task<List<AtsGrupoWorkerOpcionDto>> GetCandidatosGrupo(int grupoId, int workerId, bool esAdmin);
+    Task SetIntegrantesGrupo(int grupoId, List<int> workerIds, int workerId, bool esAdmin);
+    Task<int?> GetMiAtsPublico(Guid token, AtsGrupoMiAtsRequestDto body);
+    Task<AtsGrupoListResponseDto> ListarGrupos(AtsFiltroDto filtro, int workerId, bool esAdmin);
+    Task<AtsListaInitDto> GetListaInit(int workerId);
 
     Task Firmar(int id, int workerId, AtsFirmarRequestDto body, string? ipOrigen, string? userAgent);
     Task FirmarCapataz(int id, int callerUserId, bool esAdmin, AtsFirmarVistoRequestDto body);
@@ -61,7 +79,7 @@ public interface IAtsService
     Task<byte[]> GenerarPlantillaAutorizacionPdf(int workerId);
 
     // ── ATS Grupal ────────────────────────────────────────────────────────
-    Task<AtsGrupoCrearResponseDto> CrearGrupo(int workerId, AtsGuardarRequestDto dto);
+    Task<AtsGrupoCrearResponseDto> CrearGrupo(int workerId, AtsGuardarRequestDto dto, bool esAdmin = false);
     Task<AtsGrupoEstadoDto> GetEstadoGrupo(int id, int workerId, bool esAdmin);
     Task CerrarGrupo(int id, int workerId, bool esAdmin);
     Task<AtsGrupoResumenPublicoDto> GetResumenPublico(Guid token);

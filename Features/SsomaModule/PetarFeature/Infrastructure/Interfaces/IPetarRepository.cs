@@ -38,4 +38,6 @@ public interface IPetarRepository
     /// del grupo — deja Estado="Borrador", listo para que el servicio llame a Firmar() enseguida,
     /// igual que el flujo de un PETAR individual normal.</summary>
     Task<int> CrearDesdeGrupo(int workerId, int atsIdPropio, SsPetarGrupo grupo);
+    /// <summary>true si el trabajador ya firmó (como ejecutante) un PETAR de este PETAR grupal.</summary>
+    Task<bool> YaFirmoPetarGrupo(int petarGrupoId, int workerId);
 }

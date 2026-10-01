@@ -56,6 +56,7 @@ public class PetarRepository : IPetarRepository
 
         var petar = new SsPetar
         {
+            Codigo = await SiguienteCodigoPetar(ctx, ats.ProyectoId),
             AtsId = dto.AtsId,
             TipoId = dto.TipoId,
             WorkerId = workerId,
@@ -199,7 +200,22 @@ public class PetarRepository : IPetarRepository
             .Include(p => p.PetarGrupo)
             .FirstOrDefaultAsync(p => p.Id == id);
 
-        return petar == null ? null : ToDto(petar);
+        if (petar == null) return null;
+        var dto = ToDto(petar);
+        dto.AtsCodigo = await ctx.SsAts.Where(a => a.Id == petar.AtsId).Select(a => a.Codigo).FirstOrDefaultAsync();
+        return dto;
+    }
+
+    /// <summary>"{ABREV}-PETAR-0001": abreviatura del proyecto + correlativo propio de ese proyecto
+    /// (upsert atómico, sin números repetidos).</summary>
+    private static async Task<string> SiguienteCodigoPetar(AppDbContext ctx, int proyectoId)
+    {
+        var abrev = await ctx.Project.Where(p => p.ProjectId == proyectoId)
+            .Select(p => p.Abbreviation ?? p.Codigo).FirstOrDefaultAsync() ?? "PRY";
+        var res = await ctx.Database.SqlQuery<int>(
+            $"INSERT INTO ss_documento_correlativo (proyecto_id, tipo, ultimo) VALUES ({proyectoId}, 'PETAR', 1) ON CONFLICT (proyecto_id, tipo) DO UPDATE SET ultimo = ss_documento_correlativo.ultimo + 1 RETURNING ultimo AS \"Value\"")
+            .ToListAsync();
+        return $"{abrev.Trim().ToUpperInvariant()}-PETAR-{res[0]:D4}";
     }
 
     /// <summary>Cuando este PETAR nació de un PETAR grupal, Supervisor/SSOMA no viven en la fila
@@ -228,6 +244,7 @@ public class PetarRepository : IPetarRepository
     private static PetarResponseDto ToDtoBase(SsPetar p) => new()
     {
         Id = p.Id,
+        Codigo = p.Codigo,
         AtsId = p.AtsId,
         TipoId = p.TipoId,
         TipoNombre = p.Tipo?.Nombre,
@@ -629,12 +646,19 @@ public class PetarRepository : IPetarRepository
         await ctx.SaveChangesAsync();
     }
 
+    public async Task<bool> YaFirmoPetarGrupo(int petarGrupoId, int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsPetar.AnyAsync(p => p.PetarGrupoId == petarGrupoId && p.WorkerId == workerId && p.FirmaUrl != null);
+    }
+
     public async Task<int> CrearDesdeGrupo(int workerId, int atsIdPropio, SsPetarGrupo grupo)
     {
         using var ctx = _factory.CreateDbContext();
 
         var petar = new SsPetar
         {
+            Codigo = await SiguienteCodigoPetar(ctx, grupo.ProyectoId),
             AtsId = atsIdPropio,
             TipoId = grupo.TipoId,
             WorkerId = workerId,

@@ -42,6 +42,8 @@ public class SsPetarItem
 public class SsPetar
 {
     public int Id { get; set; }
+    /// <summary>Código correlativo global (PETAR-000001) — lo asigna el repositorio al crear, desde ss_petar_codigo_seq.</summary>
+    public string? Codigo { get; set; }
     public int AtsId { get; set; }
     public int TipoId { get; set; }
     public int WorkerId { get; set; }

@@ -44,6 +44,34 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
             return roleIds.Contains(Roles.AdministradorSistema) || roleIds.Contains(Roles.AdministradorSsoma);
         }
 
+        /// <summary>Liviano: solo proyectos + proyecto actual para el filtro del listado (GetInit trae
+        /// además todos los catálogos del wizard, innecesario para listar).</summary>
+        [HttpGet("lista-init")]
+        public async Task<IActionResult> GetListaInit()
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                return Ok(await _service.GetListaInit(workerId));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetListaInit"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Listado de ATS grupales (cuadrillas) — cualquier usuario con acceso al módulo ve los de su
+        /// proyecto; el Jefe/Administrador SSOMA ve todos.</summary>
+        [HttpGet("grupos")]
+        public async Task<IActionResult> ListarGrupos([FromQuery] AtsFiltroDto filtro)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                return Ok(await _service.ListarGrupos(filtro, workerId, EsAdmin()));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.ListarGrupos"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpGet("init")]
         public async Task<IActionResult> GetInit()
         {
@@ -629,7 +657,7 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
             try
             {
                 var workerId = await _service.ResolverWorkerId(CurrentUserId());
-                return Ok(await _service.CrearGrupo(workerId, dto));
+                return Ok(await _service.CrearGrupo(workerId, dto, EsAdmin()));
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.CrearGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
@@ -647,6 +675,213 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
             }
             catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
             catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetEstadoGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        // ── Observaciones ──
+        [HttpGet("{id:int}/observaciones")]
+        public async Task<IActionResult> GetObservacionesAts(int id)
+        {
+            try { return Ok(await _service.GetObservacionesAts(id, CurrentUserId(), EsAdmin())); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetObservacionesAts"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("{id:int}/observaciones")]
+        public async Task<IActionResult> CrearObservacionAts(int id, [FromBody] AtsObservacionCrearRequestDto body)
+        {
+            try { await _service.CrearObservacionAts(id, body.Texto, CurrentUserId(), EsAdmin()); return Ok(new { message = "Observación registrada." }); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.CrearObservacionAts"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("grupo/{id:int}/observaciones")]
+        public async Task<IActionResult> GetObservacionesGrupo(int id)
+        {
+            try { return Ok(await _service.GetObservacionesGrupo(id, CurrentUserId(), EsAdmin())); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetObservacionesGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("grupo/{id:int}/observaciones")]
+        public async Task<IActionResult> CrearObservacionGrupo(int id, [FromBody] AtsObservacionCrearRequestDto body)
+        {
+            try { await _service.CrearObservacionGrupo(id, body.Texto, CurrentUserId(), EsAdmin()); return Ok(new { message = "Observación registrada." }); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.CrearObservacionGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("observaciones/{observacionId:int}/resolver")]
+        public async Task<IActionResult> ResolverObservacion(int observacionId, [FromBody] AtsObservacionResolverRequestDto body)
+        {
+            try { await _service.ResolverObservacion(observacionId, body.Respuesta, CurrentUserId(), EsAdmin()); return Ok(new { message = "Observación resuelta." }); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.ResolverObservacion"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Contenido del grupo con forma de ATS — precarga el wizard al corregir la cuadrilla.</summary>
+        [HttpGet("grupo/{id:int}/contenido")]
+        public async Task<IActionResult> GetContenidoGrupo(int id)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                return Ok(await _service.GetContenidoGrupo(id, workerId, EsAdmin()));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetContenidoGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Anula un ATS firmado (no se borra: queda con motivo, quién y cuándo).</summary>
+        [HttpPost("{id:int}/anular")]
+        public async Task<IActionResult> AnularAts(int id, [FromBody] AtsAnularRequestDto body)
+        {
+            try
+            {
+                await _service.AnularAts(id, body.Motivo, CurrentUserId(), EsAdmin());
+                return Ok(new { message = "ATS anulado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.AnularAts"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("grupo/{id:int}/anular")]
+        public async Task<IActionResult> AnularGrupo(int id, [FromBody] AtsAnularRequestDto body)
+        {
+            try
+            {
+                await _service.AnularGrupo(id, body.Motivo, CurrentUserId(), EsAdmin());
+                return Ok(new { message = "ATS grupal anulado." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.AnularGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>El worker del usuario logueado — para que la pantalla de adhesión lo preseleccione sin pedir nombre ni DNI.</summary>
+        [HttpGet("yo")]
+        public async Task<IActionResult> GetYo()
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                return Ok(new { workerId });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetYo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Adhesión de quien ya inició sesión: firma como sí mismo, sin elegir nombre ni confirmar DNI.</summary>
+        [HttpPost("grupo/{token:guid}/unirse-yo")]
+        public async Task<IActionResult> UnirseAGrupoLogueado(Guid token, [FromBody] AtsGrupoUnirseRequestDto body)
+        {
+            try
+            {
+                var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var userAgent = Request.Headers.UserAgent.ToString();
+                var id = await _service.UnirseAGrupoLogueado(token, CurrentUserId(), body, ip, userAgent);
+                return Ok(new { id, message = "ATS firmado correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.UnirseAGrupoLogueado"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("grupo/{token:guid}/mi-ats-yo")]
+        public async Task<IActionResult> GetMiAtsLogueado(Guid token)
+        {
+            try { return Ok(new { atsId = await _service.GetMiAtsLogueado(token, CurrentUserId()) }); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetMiAtsLogueado"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("grupo/{id:int}/reabrir")]
+        public async Task<IActionResult> ReabrirGrupo(int id)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                await _service.ReabrirGrupo(id, workerId, EsAdmin());
+                return Ok(new { message = "ATS grupal reabierto." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.ReabrirGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpGet("grupo/{id:int}/candidatos")]
+        public async Task<IActionResult> GetCandidatosGrupo(int id)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                return Ok(await _service.GetCandidatosGrupo(id, workerId, EsAdmin()));
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetCandidatosGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPut("grupo/{id:int}/integrantes")]
+        public async Task<IActionResult> SetIntegrantesGrupo(int id, [FromBody] AtsGrupoIntegrantesRequestDto body)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                await _service.SetIntegrantesGrupo(id, body.WorkerIds, workerId, EsAdmin());
+                return Ok(new { message = "Integrantes actualizados." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.SetIntegrantesGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Quien ya firmó vuelve al link (p. ej. para un PETAR creado después): devuelve el id de su ATS.</summary>
+        [HttpPost("grupo/publico/{token:guid}/mi-ats")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetMiAtsPublico(Guid token, [FromBody] AtsGrupoMiAtsRequestDto body)
+        {
+            try
+            {
+                var id = await _service.GetMiAtsPublico(token, body);
+                return Ok(new { atsId = id });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetMiAtsPublico"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>PDF único del ATS grupal: todas las firmas de la cuadrilla + una firma de Capataz/Autoriza/SSOMA.</summary>
+        [HttpGet("grupo/{id:int}/pdf")]
+        public async Task<IActionResult> GetPdfGrupo(int id)
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                var bytes = await _service.GenerarPdfGrupo(id, workerId, EsAdmin());
+                return File(bytes, "application/pdf", $"ATS-GRUPAL-{id}.pdf");
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetPdfGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Residente/Producción firman "Autoriza" a toda la cuadrilla de una vez (con su firma digital).</summary>
+        [HttpPost("grupo/{id:int}/firmar-autoriza")]
+        public async Task<IActionResult> FirmarAutorizaGrupo(int id)
+        {
+            try
+            {
+                var n = await _service.FirmarVistoGrupo(id, "Autoriza", CurrentUserId(), EsAdmin());
+                return Ok(new { message = $"Autorizaste {n} ATS de la cuadrilla.", firmados = n });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.FirmarAutorizaGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>SSOMA da el Visto Bueno a toda la cuadrilla de una vez (con su firma digital).</summary>
+        [HttpPost("grupo/{id:int}/firmar-ssoma")]
+        public async Task<IActionResult> FirmarSsomaGrupo(int id)
+        {
+            try
+            {
+                var n = await _service.FirmarVistoGrupo(id, "Ssoma", CurrentUserId(), EsAdmin());
+                return Ok(new { message = $"Diste Visto Bueno a {n} ATS de la cuadrilla.", firmados = n });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.FirmarSsomaGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
         /// <summary>El autor cierra el ATS grupal manualmente (deja de aceptar adhesiones nuevas) —

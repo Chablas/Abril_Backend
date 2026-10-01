@@ -30,7 +30,7 @@ public static class PetarPdfService
                 page.Margin(30);
                 page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(9));
 
-                page.Header().Element(c => ComposeHeader(c, logoBytes, p.TipoCodigo, p.TipoNombre));
+                page.Header().Element(c => ComposeHeader(c, logoBytes, p.TipoCodigo, p.TipoNombre, p.Codigo, p.AtsCodigo));
 
                 page.Content().Column(col =>
                 {
@@ -125,7 +125,7 @@ public static class PetarPdfService
 
     /// <summary>Logo | título centrado | Código/Versión/Fecha + Elab./Rev./Apro. — mismo patrón
     /// estándar corporativo que AtsPdfService/ConvalidacionPdfService/RacPdfService.</summary>
-    private static void ComposeHeader(IContainer container, byte[]? logoBytes, string? codigo, string? tipoNombre)
+    private static void ComposeHeader(IContainer container, byte[]? logoBytes, string? codigo, string? tipoNombre, string? numeroDocumento, string? atsCodigo)
     {
         container.Border(0.5f).BorderColor(Colors.Grey.Lighten1).Row(row =>
         {
@@ -144,6 +144,8 @@ public static class PetarPdfService
                 tCol.Item().AlignCenter().Text("PERMISO ESCRITO DE TRABAJO DE ALTO RIESGO (PETAR)").Bold().FontSize(11).AlignCenter();
                 if (!string.IsNullOrWhiteSpace(tipoNombre))
                     tCol.Item().AlignCenter().Text(tipoNombre).FontSize(8).FontColor(Colors.Grey.Darken2);
+                if (!string.IsNullOrWhiteSpace(numeroDocumento))
+                    tCol.Item().AlignCenter().Text(string.IsNullOrWhiteSpace(atsCodigo) ? $"N.° {numeroDocumento}" : $"N.° {numeroDocumento}  ·  ATS vinculado: {atsCodigo}").Bold().FontSize(9);
             });
 
             row.ConstantItem(0.5f).Background(Colors.Grey.Lighten1);

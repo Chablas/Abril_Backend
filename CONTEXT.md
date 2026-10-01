@@ -6787,3 +6787,34 @@ Continuación de la sesión anterior (exploración + placeholders de la plantill
 - **Paso 7** (escaneo del contrato firmado): tabla `ProjectContractScannedDoc` lista, falta el endpoint de subida.
 - **Frontend**: no se tocó nada — se le entregó al usuario un prompt completo (entidades, DTOs, los ~15 endpoints, los 9 estados, feature keys) para la sesión de Claude Code del frontend.
 - Especialidades `IIMM` (id 11) y `OBRAS PROVISIONALES` (id 1) están **inactivas** en `work_specialty` — si se necesita crear un contrato de IIMM pronto, hay que reactivar esa fila primero (no se tocó, es dato del usuario).
+
+## Sesión 2026-10-01 — Contratos: fix Contributor (no Contractor), y correcciones pedidas por el frontend
+
+### Cambios: ProjectContract pasa a referenciar Contributor, no Contractor
+- **Hallazgo**: al probar la pantalla, los contratistas reales del usuario (ej. Juan Pablo Mendoza Incacari, RUC 10107361273, consultor de un contrato ya firmado) no aparecían en el selector. Investigado (sin tocar nada primero): `Contractor` no es "la tabla de razones sociales" — es el wrapper de onboarding/portal de subcontratistas de Adjudicaciones, con aprobación obligatoria de Costos (`PENDIENTE` → notificación a Costos y Presupuestos → aprobación). Casi ningún consultor de diseño pasa por ese circuito, por eso no aparecían.
+- `ProjectContract.ContractorId` renombrado a `ContributorId`, apuntando directo a `Contributor` (igual que `Project.ContributorId`). Repositorio: los 3 `join Contractor → Contributor` se simplificaron a `join Contributor` directo.
+- **Sin endpoint nuevo**: ya existía `GET /api/v1/project/company-lookup/{ruc}` (`ProjectFeature`, usado hoy para la razón social de un proyecto) — busca por Sunat y crea el `Contributor` directo si no existe, sin pasar por `Contractor` ni por aprobación de Costos. Se reutiliza tal cual para Contratos.
+- Migración `RenameContractIdToContributorId` (recortada a mano, arrastraba backlog de ATS grupo/capataz ya aplicado vía `Migrations_Manual/2026-09-30_ats_*.sql`) — sobre tabla vacía, sin pérdida de datos. Aplicada por el usuario.
+
+### Cambios: correcciones pedidas por la sesión del frontend (Abril-Frontend, `features/projects/contratos/`)
+Lista detallada de 6 puntos recibida tras probar el backend contra el frontend ya implementado:
+
+1. **[Bloqueante] `ContractNumber`** nunca se asignaba (ni Create ni ningún endpoint lo seteaba) → `generar-contrato` y `paso4-enviar` fallaban siempre con 400. Se asigna ahora en `CreateAsync`, correlativo **por proyecto** (no por año — el año de la plantilla sale de `SigningDate`, que puede no existir al crear). Seguro ante concurrencia: `SELECT ... FOR UPDATE` sobre la fila de `project` antes de calcular `MAX(contract_number)+1`, dentro de una transacción explícita; índice único parcial `(project_id, contract_number)` (migración `AddContractNumberUniqueIndex`, limpia) como respaldo.
+2. `generar-contrato` ahora expone `Content-Disposition` vía `Access-Control-Expose-Headers` (mismo fix que `GestionSalidaController`) para que el frontend lea el nombre real del archivo.
+3. **Permisos**: la clase pasó de `[RequireFeature(Ver)]` a `[RequireFeature(Ver, Editar)]` (OR) — los 4 roles con solo `.editar` daban 403 hasta en los GET. Resuelto en código, sin tocar `feature`/`role_feature`.
+4. **Orden de los pasos**: validado ahora en la capa de servicio (`RequireStatusAtMost`/`RequireStatusIn`, 400 con mensaje claro). Decisión explícita: **no se auto-avanza** el status a 2/3 al editar datos o generar el documento — el contrato queda en 1 hasta que se llama `paso4-enviar`. Edit/hitos/generar-contrato: status≤5. paso4-enviar: status≤3 + al menos 1 hito. paso5: status 4 o 5. paso6: status 5 o 6. paso7 (nuevo): status 6 o 7. paso8: status==**7** (no 6, por el paso 7 nuevo) + las 3 firmas en `true`. paso9: status==8.
+5. **Hitos de pago**: `AddMilestone` valida que la suma de % activos + el nuevo no supere 100 (400 si se pasa). `AddMilestone` y `DeleteMilestone` **cambiaron de shape de respuesta**: ya no devuelven el hito único/nada — devuelven la lista completa de hitos del contrato, recalculada. Nuevo endpoint `PATCH /hitos/{id}/pago` (`{ paidDate?, chequeRecibo?, observation? }`) para registrar el pago de un hito ya creado.
+6. **Paso 7 implementado**: `POST /{id}/paso7-escaneo/{slot}` (multipart, campo `file`, slot 1-3) sube el escaneo a la subcarpeta "Escaneados" de la misma carpeta SharePoint del contrato — `ProjectContractStorage` refactorizado (`UploadToSubfolderAsync` compartido por `UploadContractAsync`/`UploadScannedDocAsync`) para no duplicar la resolución de carpeta. Avanza el contrato a estado 7.
+
+### Archivos clave
+- `Features/UnidadDeProyectosModule/Features/ContratosFeature/` — tocado casi completo: DTOs, `IProjectContractService`/`ProjectContractService` (validaciones de paso + nuevos métodos), `IProjectContractRepository`/`ProjectContractRepository` (joins a Contributor, transacción de ContractNumber, métodos de hitos/escaneo), `IProjectContractStorage`/`ProjectContractStorage` (refactor subcarpetas), `ProjectContractController` (CORS header, permisos de clase, 2 endpoints nuevos).
+- `Shared/Data/AppContext.cs` — índice único parcial de `ContractNumber`.
+- `Migrations/20261001195420_RenameContractIdToContributorId.cs`, `Migrations/20261001222040_AddContractNumberUniqueIndex.cs` (ambas recortadas/limpias según corresponda).
+
+### Verificado
+`dotnet build Abril-Backend.csproj` → 0 errores en cada paso. Las 2 migraciones SQL (rename + índice único) corridas por el usuario contra producción (único entorno, D1). Reporte completo de endpoints cambiados (shapes nuevos, ejemplos JSON) entregado al usuario para pasar a la sesión del frontend.
+
+### Pendiente
+- Plantilla `.docx` de Arquitectura/Estructuras — sigue sin entregarse.
+- El frontend debe confirmar si necesita que el status avance realmente por 2/3 (hoy queda en 1 hasta `paso4-enviar`) — si lo pide, hay que coordinarlo con el stepper.
+- Especialidades `IIMM` (id 11) y `OBRAS PROVISIONALES` (id 1) siguen inactivas en `work_specialty` (no tocado, dato del usuario).

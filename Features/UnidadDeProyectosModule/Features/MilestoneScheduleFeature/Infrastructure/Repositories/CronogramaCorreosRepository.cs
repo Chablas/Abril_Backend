@@ -386,6 +386,32 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
                     filas.Select(f => (f.Recepcion, f.Email)));
         }
 
+        /// <summary>
+        /// Mismo criterio que <c>LessonReminderRepository.GetHolidayDatesAsync</c>, que es el que usa
+        /// el cron: feriados vivos y activos; uno que se repite cada año cae en ese mes y día de
+        /// <paramref name="anio"/>.
+        /// </summary>
+        public async Task<HashSet<DateOnly>> GetFeriadosAsync(int anio, int mes)
+        {
+            using var ctx = _factory.CreateDbContext();
+
+            var feriados = await ctx.Holiday
+                .Where(h => h.State && h.Active)
+                .Select(h => new { h.HolidayDate, h.RecurringYearly })
+                .ToListAsync();
+
+            var resultado = new HashSet<DateOnly>();
+            foreach (var h in feriados)
+            {
+                if (h.HolidayDate.Month != mes) continue;
+                if (h.RecurringYearly)
+                    resultado.Add(new DateOnly(anio, mes, Math.Min(h.HolidayDate.Day, DateTime.DaysInMonth(anio, mes))));
+                else if (h.HolidayDate.Year == anio)
+                    resultado.Add(h.HolidayDate);
+            }
+            return resultado;
+        }
+
         // ── Ayudantes ────────────────────────────────────────────────────────
 
         private async Task<bool> EjecutarAsync(string sql, object parametros)
@@ -433,6 +459,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             Codigo = fila.Codigo,
             Nombre = fila.Nombre,
             Descripcion = fila.Descripcion,
+            Asunto = CronogramaHitosAsuntos.Plantilla(fila.Codigo),
             Active = fila.Active,
             PrincipalNombre = fila.PrincipalNombre,
             PrincipalActive = fila.PrincipalActive,

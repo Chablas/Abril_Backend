@@ -322,12 +322,15 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             }
         }
 
-        public async Task<List<UserWithoutMilestoneDTO>> GetUsersWithoutScheduleHistoryThisMonth()
+        public async Task<List<UserWithoutMilestoneDTO>> GetUsersWithoutScheduleHistoryAsync(int anio, int mes)
         {
             await using var ctx = await _factory.CreateDbContextAsync();
 
-            var now = DateTime.UtcNow;
-            var startOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            // El mes lo pide quien llama (el cron, el de hoy; el envío manual, el del día que simula)
+            // y se cuenta en hora de Perú (UTC-5, sin horario de verano): empieza a las 05:00 UTC.
+            // Antes era el mes en curso en UTC, y una versión subida el último día después de las
+            // 19:00 de Lima contaba para el mes siguiente.
+            var startOfMonth = new DateTime(anio, mes, 1, 5, 0, 0, DateTimeKind.Utc);
             var startOfNextMonth = startOfMonth.AddMonths(1);
 
             // Las obras del mismo universo que las tarjetas (ResidenteQueries), cada una con su

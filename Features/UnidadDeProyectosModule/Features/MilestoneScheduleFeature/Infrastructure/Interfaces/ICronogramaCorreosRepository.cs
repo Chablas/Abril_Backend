@@ -40,5 +40,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         /// no está en la base.
         /// </summary>
         Task<CronogramaCorreoListaEnvio?> GetListaEnvioAsync(string codigo);
+
+        /// <summary>Los feriados de ese mes (Configuración → Feriados): no cuentan como días hábiles.</summary>
+        Task<HashSet<DateOnly>> GetFeriadosAsync(int anio, int mes);
     }
 }

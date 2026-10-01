@@ -53,6 +53,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule
             services.AddScoped<ICronogramaCorreosRepository, CronogramaCorreosRepository>();
             services.AddScoped<ICronogramaConfiguracionService, CronogramaConfiguracionService>();
             services.AddScoped<ICronogramaCorreoDestinatariosResolver, CronogramaCorreoDestinatariosResolver>();
+            // Los dos recordatorios: los manda el cron (ReminderService) y el envío manual de la
+            // Configuración, con el mismo plan.
+            services.AddScoped<ICronogramaRecordatoriosService, CronogramaRecordatoriosService>();
 
             // Projects (paged-with-residents)
             services.AddScoped<IProjectsRepo, ProjectsRepo>();

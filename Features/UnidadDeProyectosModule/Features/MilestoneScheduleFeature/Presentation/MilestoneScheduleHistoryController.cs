@@ -118,7 +118,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             {
                 await _emailService.SendAsync(
                     to: envio.Para,
-                    subject: "Cambios en el cronograma",
+                    subject: CronogramaHitosAsuntos.VersionConCambios,
                     body: body,
                     isHtml: true,
                     cc: envio.Cc,

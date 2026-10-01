@@ -149,8 +149,7 @@ public class PetarService : IPetarService
 
         if (string.IsNullOrWhiteSpace(body.SelfieBase64))
             throw new AbrilException("La selfie es obligatoria para firmar el PETAR.", 400);
-        if (string.IsNullOrWhiteSpace(body.FirmaBase64))
-            throw new AbrilException("La firma es obligatoria.", 400);
+        var firmaBytes = await ObtenerFirmaDigitalObligatoria(workerId);
 
         // El consentimiento de uso de imagen/geolocalización ya se dio al firmar el primer ATS —
         // no se vuelve a pedir acá, es el mismo trabajador con la misma autorización vigente.
@@ -158,7 +157,6 @@ public class PetarService : IPetarService
         var (selfieUrl, selfieHash) = await SubirImagenConHash("selfie", workerId, body.SelfieBase64);
         var selfieDuplicada = await _repository.ExisteSelfieHash(selfieHash);
 
-        var firmaBytes = FirmaImagenHelper.DecodePng(body.FirmaBase64);
         var firmaHash = Convert.ToHexString(SHA256.HashData(firmaBytes));
         var firmaUrl = await SubirBytes("firma", workerId, firmaBytes, "png");
 
@@ -209,11 +207,9 @@ public class PetarService : IPetarService
 
     private async Task FirmarVistoComun(int id, int callerUserId, bool esAdmin, PetarFirmarVistoRequestDto body, string rol)
     {
-        if (string.IsNullOrWhiteSpace(body.FirmaBase64))
-            throw new AbrilException("La firma es obligatoria.", 400);
-
         var entidad = await _repository.GetEntidad(id) ?? throw new AbrilException("PETAR no encontrado.", 404);
         var workerId = await _atsRepository.ResolverWorkerIdAsync(callerUserId);
+        var firmaBytes = await ObtenerFirmaDigitalObligatoria(workerId);
         var responsables = await _atsRepository.GetResponsables(entidad.ProyectoId);
 
         if (!esAdmin)
@@ -233,7 +229,6 @@ public class PetarService : IPetarService
 
         var (nombre, cargo) = await _atsRepository.GetNombreYCargo(workerId);
 
-        var firmaBytes = FirmaImagenHelper.DecodePng(body.FirmaBase64);
         var firmaHash = Convert.ToHexString(SHA256.HashData(firmaBytes));
         var firmaUrl = await SubirBytes(rol.ToLower(), workerId, firmaBytes, "png");
 
@@ -271,12 +266,9 @@ public class PetarService : IPetarService
 
     public async Task Cerrar(int id, int workerId, PetarCerrarRequestDto body)
     {
-        if (string.IsNullOrWhiteSpace(body.FirmaBase64))
-            throw new AbrilException("La firma es obligatoria para cerrar el PETAR.", 400);
-
         var entidad = await _repository.GetEntidad(id) ?? throw new AbrilException("PETAR no encontrado.", 404);
 
-        var firmaBytes = FirmaImagenHelper.DecodePng(body.FirmaBase64);
+        var firmaBytes = await ObtenerFirmaDigitalObligatoria(workerId);
         var firmaHash = Convert.ToHexString(SHA256.HashData(firmaBytes));
         var firmaUrl = await SubirBytes("cierre", workerId, firmaBytes, "png");
 
@@ -394,6 +386,16 @@ public class PetarService : IPetarService
         return urls[0];
     }
 
+    /// <summary>Toda firma del PETAR sale de la firma digital ya capturada en la autorización
+    /// (SSO-FO-151) — ya no se acepta una firma dibujada al momento.</summary>
+    private async Task<byte[]> ObtenerFirmaDigitalObligatoria(int workerId)
+    {
+        var (url, _, _) = await _atsRepository.GetFirmaDigitalAutorizacion(workerId);
+        var bytes = url == null ? null : await DescargarBytes(url);
+        return bytes ?? throw new AbrilException(
+            "No hay una firma digital registrada para este trabajador. El Coordinador SSOMA debe capturarla en Autorizaciones antes de poder firmar.", 400);
+    }
+
     private static async Task<byte[]?> DescargarBytes(string url)
     {
         try
@@ -484,11 +486,9 @@ public class PetarService : IPetarService
 
     private async Task FirmarVistoGrupoComun(int id, int callerUserId, bool esAdmin, PetarFirmarVistoRequestDto body, string rol)
     {
-        if (string.IsNullOrWhiteSpace(body.FirmaBase64))
-            throw new AbrilException("La firma es obligatoria.", 400);
-
         var grupo = await _repository.GetGrupoEntidad(id) ?? throw new AbrilException("PETAR grupal no encontrado.", 404);
         var workerId = await _atsRepository.ResolverWorkerIdAsync(callerUserId);
+        var firmaBytes = await ObtenerFirmaDigitalObligatoria(workerId);
 
         if (!esAdmin)
         {
@@ -508,7 +508,6 @@ public class PetarService : IPetarService
 
         var (nombre, cargo) = await _atsRepository.GetNombreYCargo(workerId);
 
-        var firmaBytes = FirmaImagenHelper.DecodePng(body.FirmaBase64);
         var firmaHash = Convert.ToHexString(SHA256.HashData(firmaBytes));
         var firmaUrl = await SubirBytes(rol.ToLower() + "-grupo", workerId, firmaBytes, "png");
 
@@ -534,6 +533,11 @@ public class PetarService : IPetarService
             ?? throw new AbrilException("Primero debes firmar tu ATS antes de firmar el PETAR.", 400);
         if (atsPropio.WorkerId != body.WorkerId || atsPropio.AtsGrupoId != atsGrupo.Id)
             throw new AbrilException("Este ATS no corresponde a este trabajador/grupo.", 403);
+
+        if (await _repository.YaFirmoPetarGrupo(petarGrupo.Id, body.WorkerId))
+            throw new AbrilException("Ya firmaste este PETAR.", 409);
+
+        await ObtenerFirmaDigitalObligatoria(body.WorkerId); // antes de crear el borrador, para no dejarlo huérfano
 
         var petarId = await _repository.CrearDesdeGrupo(body.WorkerId, body.AtsIdPropio, petarGrupo);
 

@@ -275,6 +275,7 @@ public class AtsRepository : IAtsRepository
 
         var ats = new SsAts
         {
+            Codigo = await SiguienteCodigoAts(ctx, dto.ProyectoId),
             WorkerId = workerId,
             ProyectoId = dto.ProyectoId,
             PuestoId = worker?.PuestoId,
@@ -459,9 +460,24 @@ public class AtsRepository : IAtsRepository
         return ats == null ? null : ToDto(ats);
     }
 
+    /// <summary>"{ABREV}-ATS-0001": abreviatura del proyecto (misma que Accidentes/Observaciones) +
+    /// correlativo propio de ese proyecto. El upsert atómico evita números repetidos si dos ATS se
+    /// crean a la vez.</summary>
+    private static async Task<string> SiguienteCodigoAts(AppDbContext ctx, int proyectoId, string tipo = "ATS")
+    {
+        var abrev = await ctx.Project.Where(p => p.ProjectId == proyectoId)
+            .Select(p => p.Abbreviation ?? p.Codigo).FirstOrDefaultAsync() ?? "PRY";
+        var res = await ctx.Database.SqlQuery<int>(
+            $"INSERT INTO ss_documento_correlativo (proyecto_id, tipo, ultimo) VALUES ({proyectoId}, {tipo}, 1) ON CONFLICT (proyecto_id, tipo) DO UPDATE SET ultimo = ss_documento_correlativo.ultimo + 1 RETURNING ultimo AS \"Value\"")
+            .ToListAsync();
+        return $"{abrev.Trim().ToUpperInvariant()}-{tipo}-{res[0]:D4}";
+    }
+
     private static AtsResponseDto ToDto(SsAts ats) => new()
     {
         Id = ats.Id,
+        Codigo = ats.Codigo,
+        AnuladoMotivo = ats.AnuladoMotivo,
         WorkerId = ats.WorkerId,
         WorkerNombre = ats.Worker?.Person?.FullName,
         ProyectoId = ats.ProyectoId,
@@ -476,6 +492,8 @@ public class AtsRepository : IAtsRepository
         Lugar = ats.Lugar,
         Fecha = ats.Fecha,
         HoraServidorFirma = ats.HoraServidorFirma,
+        OrigenOffline = ats.OrigenOffline,
+        HoraDispositivo = ats.HoraDispositivo,
         Lat = ats.Lat,
         Lng = ats.Lng,
         PrecisionMetros = ats.PrecisionMetros,
@@ -559,6 +577,7 @@ public class AtsRepository : IAtsRepository
                     return new AtsPetarResumenDto
                     {
                         Id = p.Id,
+                        Codigo = p.Codigo,
                         TipoNombre = p.Tipo?.Nombre,
                         Estado = p.Estado,
                         TieneFirmaEjecutante = p.FirmaUrl != null,
@@ -1041,6 +1060,7 @@ public class AtsRepository : IAtsRepository
         using var ctx = _factory.CreateDbContext();
 
         var query = ctx.SsAts
+            .AsNoTracking()
             .Include(a => a.Worker).ThenInclude(w => w!.Person)
             .Include(a => a.Proyecto)
             .Include(a => a.Puesto)
@@ -1051,6 +1071,7 @@ public class AtsRepository : IAtsRepository
         if (filtro.FechaDesde.HasValue) query = query.Where(a => a.Fecha >= filtro.FechaDesde);
         if (filtro.FechaHasta.HasValue) query = query.Where(a => a.Fecha <= filtro.FechaHasta);
         if (!string.IsNullOrWhiteSpace(filtro.Estado)) query = query.Where(a => a.Estado == filtro.Estado);
+        if (filtro.SoloIndividuales) query = query.Where(a => a.AtsGrupoId == null);
 
         query = query.OrderByDescending(a => a.Fecha).ThenByDescending(a => a.Id);
 
@@ -1068,11 +1089,117 @@ public class AtsRepository : IAtsRepository
         };
     }
 
+    public async Task<AtsGrupoListResponseDto> ListarGrupos(AtsFiltroDto filtro)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var query = ctx.SsAtsGrupo.AsNoTracking().AsQueryable();
+        if (filtro.ProyectoId.HasValue) query = query.Where(g => g.ProyectoId == filtro.ProyectoId);
+        if (filtro.FechaDesde.HasValue) query = query.Where(g => g.Fecha >= filtro.FechaDesde);
+        if (filtro.FechaHasta.HasValue) query = query.Where(g => g.Fecha <= filtro.FechaHasta);
+        if (!string.IsNullOrWhiteSpace(filtro.Estado)) query = query.Where(g => g.Estado == filtro.Estado);
+
+        var total = await query.CountAsync();
+        var page = Math.Max(1, filtro.Page);
+
+        // Una sola consulta con el conteo de adhesiones como subconsulta — no se traen las filas de SsAts.
+        var filas = await query
+            .OrderByDescending(g => g.Fecha).ThenByDescending(g => g.Id)
+            .Skip((page - 1) * PageSize).Take(PageSize)
+            .Select(g => new
+            {
+                g.Id,
+                g.Codigo,
+                g.Revision,
+                ObsAbiertas = ctx.SsAtsObservacion.Count(o => o.AtsGrupoId == g.Id && o.Estado == "Abierta"),
+                ProyectoNombre = g.Proyecto != null ? g.Proyecto.ProjectDescription : null,
+                g.Actividad, g.TorreNombre, g.Pisos, g.Lugar, g.Fecha, g.Estado,
+                CreadoPorNombre = g.CreadoPorWorker != null && g.CreadoPorWorker.Person != null ? g.CreadoPorWorker.Person.FullName : null,
+                Total = ctx.SsAts.Count(a => a.AtsGrupoId == g.Id),
+                g.CapatazNombre,
+                CapatazFirmado = g.CapatazFirmaUrl != null,
+                g.CapatazAdhesionesAlFirmar,
+            })
+            .ToListAsync();
+
+        // Avance de la cadena de firmas de cada cuadrilla de la página — una consulta para todas.
+        var grupoIds = filas.Select(f => f.Id).ToList();
+        var adhesiones = await ctx.SsAts.AsNoTracking()
+            .Where(a => a.AtsGrupoId != null && grupoIds.Contains(a.AtsGrupoId.Value))
+            .Select(a => new { GrupoId = a.AtsGrupoId!.Value, a.WorkerId, a.Estado, Autoriza = a.AutorizaFirmaUrl != null, Ssoma = a.SsomaFirmaUrl != null })
+            .ToListAsync();
+        var flagsObrero = await GetEsObreroDeObraBatch(adhesiones.Select(a => a.WorkerId));
+        var adhesionesPorGrupo = adhesiones.ToLookup(a => a.GrupoId);
+
+        return new AtsGrupoListResponseDto
+        {
+            Data = filas.Select(f =>
+            {
+                var alFirmar = f.CapatazAdhesionesAlFirmar ?? 0;
+                var adh = adhesionesPorGrupo[f.Id].ToList();
+                var firmadas = adh.Where(a => a.Estado == "Firmado").ToList();
+                return new AtsGrupoListaItemDto
+                {
+                    // Sin adheridos todavía se asume que requiere Capataz solo si ya hubo firma de uno.
+                    RequiereCapataz = adh.Count > 0 ? adh.Any(a => flagsObrero.GetValueOrDefault(a.WorkerId)) : f.CapatazFirmado,
+                    EjecutantesFirmados = firmadas.Count,
+                    AutorizaFirmados = firmadas.Count(a => a.Autoriza),
+                    SsomaFirmados = firmadas.Count(a => a.Ssoma),
+                    Id = f.Id,
+                    Codigo = f.Codigo,
+                    Revision = f.Revision,
+                    ObservacionesAbiertas = f.ObsAbiertas,
+                    ProyectoNombre = f.ProyectoNombre,
+                    Actividad = f.Actividad,
+                    TorreNombre = f.TorreNombre,
+                    Pisos = f.Pisos,
+                    Lugar = f.Lugar,
+                    Fecha = f.Fecha,
+                    Estado = f.Estado,
+                    CreadoPorNombre = f.CreadoPorNombre,
+                    TotalAdhesiones = f.Total,
+                    CapatazNombre = f.CapatazNombre,
+                    CapatazFirmado = f.CapatazFirmado,
+                    CapatazVigente = f.CapatazFirmado && f.Total <= alFirmar,
+                    CapatazNuevosSinValidar = f.CapatazFirmado ? Math.Max(0, f.Total - alFirmar) : 0,
+                };
+            }).ToList(),
+            Page = page,
+            PageSize = PageSize,
+            TotalRecords = total,
+            TotalPages = (int)Math.Ceiling(total / (double)PageSize),
+        };
+    }
+
+    public async Task<Dictionary<int, bool>> GetEsObreroDeObraBatch(IEnumerable<int> workerIds)
+    {
+        var ids = workerIds.Distinct().ToList();
+        if (ids.Count == 0) return [];
+        using var ctx = _factory.CreateDbContext();
+        var workers = await ctx.Worker.AsNoTracking()
+            .Where(w => ids.Contains(w.Id))
+            .Select(w => new { w.Id, w.ObraOficinaStaffId, Puesto = w.PuestoCatalogo != null ? w.PuestoCatalogo.Nombre : null })
+            .ToListAsync();
+
+        // Misma regla que EsObreroDeObra.
+        return workers.ToDictionary(w => w.Id, w =>
+        {
+            if (w.Puesto != null
+                && (w.Puesto.Contains("Capataz", StringComparison.OrdinalIgnoreCase)
+                    || w.Puesto.Contains("Maestro de Obra", StringComparison.OrdinalIgnoreCase)))
+                return false;
+            if (w.ObraOficinaStaffId == null) return true;
+            return !Abril_Backend.Shared.Constants.ObraOficinaStaffIds.StaffUOficinaCentral.Contains(w.ObraOficinaStaffId.Value);
+        });
+    }
+
     /// <summary>Misma forma que ToDto pero sin Pasos/Epps/Herramientas/Riesgos (listas vacías) —
     /// ver comentario en Listar. No requiere que esas colecciones de navegación vengan cargadas.</summary>
     private static AtsResponseDto ToDtoResumen(SsAts ats) => new()
     {
         Id = ats.Id,
+        Codigo = ats.Codigo,
+        AnuladoMotivo = ats.AnuladoMotivo,
         WorkerId = ats.WorkerId,
         WorkerNombre = ats.Worker?.Person?.FullName,
         ProyectoId = ats.ProyectoId,
@@ -1087,6 +1214,8 @@ public class AtsRepository : IAtsRepository
         Lugar = ats.Lugar,
         Fecha = ats.Fecha,
         HoraServidorFirma = ats.HoraServidorFirma,
+        OrigenOffline = ats.OrigenOffline,
+        HoraDispositivo = ats.HoraDispositivo,
         Lat = ats.Lat,
         Lng = ats.Lng,
         PrecisionMetros = ats.PrecisionMetros,
@@ -1336,8 +1465,14 @@ public class AtsRepository : IAtsRepository
         using var ctx = _factory.CreateDbContext();
 
         var hoy = DateOnly.FromDateTime(DateTime.Today);
+        var anterior = dto.GrupoAnteriorId.HasValue
+            ? await ctx.SsAtsGrupo.FirstOrDefaultAsync(g => g.Id == dto.GrupoAnteriorId.Value)
+            : null;
         var grupo = new SsAtsGrupo
         {
+            Revision = (anterior?.Revision ?? 0) + 1,
+            GrupoAnteriorId = anterior?.Id,
+            Codigo = await SiguienteCodigoAts(ctx, dto.ProyectoId, "ATSG"),
             CreadoPorWorkerId = creadoPorWorkerId,
             ProyectoId = dto.ProyectoId,
             PlantillaId = dto.PlantillaId,
@@ -1436,6 +1571,20 @@ public class AtsRepository : IAtsRepository
 
         ctx.SsAtsGrupo.Add(grupo);
         await ctx.SaveChangesAsync();
+
+        if (anterior != null)
+        {
+            // La revisión reemplaza a la anterior (queda en el historial como "Reemplazado") y hereda a quienes
+            // debían firmar: los integrantes esperados + quienes ya habían firmado, que ahora deben re-firmar.
+            if (anterior.Estado != "Anulado") anterior.Estado = "Reemplazado";
+            anterior.UpdatedAt = DateTime.UtcNow;
+
+            var previos = await ctx.SsAtsGrupoIntegrante.Where(i => i.AtsGrupoId == anterior.Id).Select(i => i.WorkerId).ToListAsync();
+            var firmaron = await ctx.SsAts.Where(a => a.AtsGrupoId == anterior.Id && a.Estado == "Firmado").Select(a => a.WorkerId).ToListAsync();
+            foreach (var wid in previos.Concat(firmaron).Distinct())
+                ctx.SsAtsGrupoIntegrante.Add(new SsAtsGrupoIntegrante { AtsGrupoId = grupo.Id, WorkerId = wid });
+            await ctx.SaveChangesAsync();
+        }
         return grupo;
     }
 
@@ -1474,8 +1623,33 @@ public class AtsRepository : IAtsRepository
             .OrderBy(a => a.Worker!.Person!.FullName)
             .ToListAsync();
 
+        // ¿La cuadrilla es de obreros (requiere Capataz) o de Staff/supervisores (no)? Se decide por quienes
+        // ya se adhirieron; si todavía no hay nadie, por quien la creó (un Capataz/Maestro que arma la
+        // cuadrilla cuenta como cuadrilla de obreros).
+        bool requiereCapataz;
+        if (adheridos.Count > 0)
+        {
+            var flags = await GetEsObreroDeObraBatch(adheridos.Select(a => a.WorkerId));
+            requiereCapataz = flags.Values.Any(v => v);
+        }
+        else
+        {
+            var creador = await GetEsObreroDeObraBatch([grupo.CreadoPorWorkerId]);
+            requiereCapataz = creador.GetValueOrDefault(grupo.CreadoPorWorkerId) || await EsCapatazOMaestro(grupo.CreadoPorWorkerId);
+        }
+        var firmados = adheridos.Where(a => a.Estado == "Firmado").ToList();
+
         return new AtsGrupoEstadoDto
         {
+            Codigo = grupo.Codigo,
+            Revision = grupo.Revision,
+            GrupoAnteriorId = grupo.GrupoAnteriorId,
+            ReemplazadoPorId = await ctx.SsAtsGrupo.Where(g => g.GrupoAnteriorId == id).Select(g => (int?)g.Id).FirstOrDefaultAsync(),
+            ObservacionesAbiertas = await ctx.SsAtsObservacion.CountAsync(o => o.AtsGrupoId == id && o.Estado == "Abierta"),
+            RequiereCapataz = requiereCapataz,
+            EjecutantesFirmados = firmados.Count,
+            AutorizaFirmados = firmados.Count(a => a.AutorizaFirmaUrl != null),
+            SsomaFirmados = firmados.Count(a => a.SsomaFirmaUrl != null),
             Id = grupo.Id,
             Actividad = grupo.Actividad,
             ProyectoNombre = grupo.Proyecto?.ProjectDescription,
@@ -1487,11 +1661,261 @@ public class AtsRepository : IAtsRepository
             QrExpiraEn = grupo.QrExpiraEn,
             TotalAdhesiones = adheridos.Count,
             TrabajadoresAdheridos = adheridos.Select(a => a.Worker?.Person?.FullName ?? "—").ToList(),
+            Adheridos = adheridos.Select(a => new AtsGrupoAdheridoDto { AtsId = a.Id, Nombre = a.Worker?.Person?.FullName ?? "—", Estado = a.Estado, AutorizaFirmado = a.AutorizaFirmaUrl != null, SsomaFirmado = a.SsomaFirmaUrl != null }).ToList(),
             CapatazNombre = grupo.CapatazNombre,
             CapatazHoraServidor = grupo.CapatazHoraServidor,
             CapatazVigente = grupo.CapatazFirmaUrl != null && adheridos.Count <= (grupo.CapatazAdhesionesAlFirmar ?? 0),
             CapatazNuevosSinValidar = grupo.CapatazFirmaUrl != null ? Math.Max(0, adheridos.Count - (grupo.CapatazAdhesionesAlFirmar ?? 0)) : 0,
         };
+    }
+
+    public async Task<List<int>> GetAtsIdsPendientesDeVisto(int atsGrupoId, string rol, int callerWorkerId, bool incluirPropios)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var q = ctx.SsAts.AsNoTracking().Where(a => a.AtsGrupoId == atsGrupoId && a.Estado == "Firmado");
+        q = rol == "Autoriza" ? q.Where(a => a.AutorizaFirmaUrl == null) : q.Where(a => a.SsomaFirmaUrl == null);
+        if (!incluirPropios) q = q.Where(a => a.WorkerId != callerWorkerId);
+        return await q.Select(a => a.Id).ToListAsync();
+    }
+
+    public async Task<List<SsAtsObservacion>> GetObservaciones(int? atsId, int? grupoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var q = ctx.SsAtsObservacion.AsNoTracking().AsQueryable();
+        q = atsId.HasValue ? q.Where(o => o.AtsId == atsId) : q.Where(o => o.AtsGrupoId == grupoId);
+        return await q.OrderBy(o => o.Estado == "Abierta" ? 0 : 1).ThenByDescending(o => o.CreatedAt).ToListAsync();
+    }
+
+    public async Task<SsAtsObservacion?> GetObservacion(int id)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAtsObservacion.AsNoTracking().FirstOrDefaultAsync(o => o.Id == id);
+    }
+
+    public async Task AgregarObservacion(SsAtsObservacion o)
+    {
+        using var ctx = _factory.CreateDbContext();
+        ctx.SsAtsObservacion.Add(o);
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task ResolverObservacion(int id, string respuesta, int workerId, string nombre)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var o = await ctx.SsAtsObservacion.FirstOrDefaultAsync(x => x.Id == id) ?? throw new AbrilException("Observación no encontrada.", 404);
+        o.Estado = "Resuelta";
+        o.Respuesta = respuesta;
+        o.ResueltaPorWorkerId = workerId;
+        o.ResueltaPorNombre = nombre;
+        o.ResueltaEn = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<int> ContarObservacionesAbiertas(int? atsId, int? grupoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var q = ctx.SsAtsObservacion.Where(o => o.Estado == "Abierta");
+        q = atsId.HasValue ? q.Where(o => o.AtsId == atsId) : q.Where(o => o.AtsGrupoId == grupoId);
+        return await q.CountAsync();
+    }
+
+    public async Task<Dictionary<int, int>> ContarObservacionesAbiertasPorAts(IEnumerable<int> atsIds)
+    {
+        var ids = atsIds.Distinct().ToList();
+        if (ids.Count == 0) return [];
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAtsObservacion.AsNoTracking()
+            .Where(o => o.Estado == "Abierta" && o.AtsId != null && ids.Contains(o.AtsId.Value))
+            .GroupBy(o => o.AtsId!.Value)
+            .Select(g => new { Id = g.Key, N = g.Count() })
+            .ToDictionaryAsync(x => x.Id, x => x.N);
+    }
+
+    public async Task ResolverObservacionesDeGrupo(int grupoId, string respuesta, int workerId, string nombre)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var abiertas = await ctx.SsAtsObservacion.Where(o => o.AtsGrupoId == grupoId && o.Estado == "Abierta").ToListAsync();
+        foreach (var o in abiertas)
+        {
+            o.Estado = "Resuelta";
+            o.Respuesta = respuesta;
+            o.ResueltaPorWorkerId = workerId;
+            o.ResueltaPorNombre = nombre;
+            o.ResueltaEn = DateTime.UtcNow;
+        }
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task AnularAts(int atsId, string motivo, int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var a = await ctx.SsAts.FirstOrDefaultAsync(x => x.Id == atsId) ?? throw new AbrilException("ATS no encontrado.", 404);
+        a.Estado = "Anulado";
+        a.AnuladoMotivo = motivo;
+        a.AnuladoPorWorkerId = workerId;
+        a.AnuladoEn = DateTime.UtcNow;
+        a.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<int> AnularGrupo(int atsGrupoId, string motivo, int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var g = await ctx.SsAtsGrupo.FirstOrDefaultAsync(x => x.Id == atsGrupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        var ahora = DateTime.UtcNow;
+        g.Estado = "Anulado";
+        g.AnuladoMotivo = motivo;
+        g.AnuladoPorWorkerId = workerId;
+        g.AnuladoEn = ahora;
+        g.UpdatedAt = ahora;
+
+        var ats = await ctx.SsAts.Where(a => a.AtsGrupoId == atsGrupoId && a.Estado != "Anulado").ToListAsync();
+        foreach (var a in ats)
+        {
+            a.Estado = "Anulado";
+            a.AnuladoMotivo = motivo;
+            a.AnuladoPorWorkerId = workerId;
+            a.AnuladoEn = ahora;
+            a.UpdatedAt = ahora;
+        }
+        await ctx.SaveChangesAsync();
+        return ats.Count;
+    }
+
+    public async Task<HashSet<int>> GetWorkerIdsAdheridos(int atsGrupoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return (await ctx.SsAts.AsNoTracking()
+            .Where(a => a.AtsGrupoId == atsGrupoId && a.Estado == "Firmado")
+            .Select(a => a.WorkerId).ToListAsync()).ToHashSet();
+    }
+
+    public async Task<int?> GetAtsIdDeGrupo(int atsGrupoId, int workerId, string estado)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAts.AsNoTracking()
+            .Where(a => a.AtsGrupoId == atsGrupoId && a.WorkerId == workerId && a.Estado == estado)
+            .OrderByDescending(a => a.Id)
+            .Select(a => (int?)a.Id)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<bool> GrupoTieneValidaciones(int atsGrupoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        if (await ctx.SsAtsGrupo.AnyAsync(g => g.Id == atsGrupoId && g.CapatazFirmaUrl != null)) return true;
+        return await ctx.SsAts.AnyAsync(a => a.AtsGrupoId == atsGrupoId && (a.AutorizaFirmaUrl != null || a.SsomaFirmaUrl != null));
+    }
+
+    public async Task ReabrirGrupo(int atsGrupoId, DateTime nuevaExpiracionUtc)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var g = await ctx.SsAtsGrupo.FirstOrDefaultAsync(x => x.Id == atsGrupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        g.Estado = "Activo";
+        g.QrExpiraEn = nuevaExpiracionUtc;
+        g.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task AgregarEventoGrupo(int atsGrupoId, string evento, int? workerId, string? detalle)
+    {
+        using var ctx = _factory.CreateDbContext();
+        ctx.SsAtsGrupoEvento.Add(new SsAtsGrupoEvento { AtsGrupoId = atsGrupoId, Evento = evento, WorkerId = workerId, Detalle = detalle, CreatedAt = DateTime.UtcNow });
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<string?> GetUltimoEventoGrupo(int atsGrupoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var ev = await ctx.SsAtsGrupoEvento.AsNoTracking()
+            .Where(e => e.AtsGrupoId == atsGrupoId)
+            .OrderByDescending(e => e.CreatedAt).FirstOrDefaultAsync();
+        if (ev is null) return null;
+        var quien = ev.WorkerId.HasValue
+            ? await ctx.Worker.AsNoTracking().Where(w => w.Id == ev.WorkerId).Select(w => w.Person!.FullName).FirstOrDefaultAsync()
+            : null;
+        var peru = new DateTimeOffset(DateTime.SpecifyKind(ev.CreatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(-5));
+        return $"{ev.Evento} por {quien ?? "—"} el {peru:dd/MM/yyyy HH:mm}";
+    }
+
+    public async Task<List<AtsGrupoIntegranteDto>> GetIntegrantes(int atsGrupoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var ids = await ctx.SsAtsGrupoIntegrante.AsNoTracking().Where(i => i.AtsGrupoId == atsGrupoId).Select(i => i.WorkerId).ToListAsync();
+        if (ids.Count == 0) return [];
+        var adheridos = await GetWorkerIdsAdheridos(atsGrupoId);
+        var nombres = await ctx.Worker.AsNoTracking().Where(w => ids.Contains(w.Id))
+            .Select(w => new { w.Id, Nombre = w.Person != null ? w.Person.FullName : "—" }).ToListAsync();
+        return nombres
+            .Select(n => new AtsGrupoIntegranteDto { WorkerId = n.Id, Nombre = n.Nombre, Adherido = adheridos.Contains(n.Id) })
+            .OrderBy(n => n.Adherido).ThenBy(n => n.Nombre)
+            .ToList();
+    }
+
+    public async Task<int?> GetGrupoIdPorClientId(Guid clientId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAtsGrupo.AsNoTracking().Where(g => g.ClientId == clientId).Select(g => (int?)g.Id).FirstOrDefaultAsync();
+    }
+
+    public async Task MarcarGrupoOffline(int atsGrupoId, Guid clientId, DateTime capturadoEnUtc)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var g = await ctx.SsAtsGrupo.FirstOrDefaultAsync(x => x.Id == atsGrupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        g.OrigenOffline = true;
+        g.ClientId = clientId;
+        g.CapturadoEn = capturadoEnUtc;
+        // La jornada es la del día en que se trabajó (Perú, UTC-5), no la del día de la sincronización.
+        g.Fecha = DateOnly.FromDateTime(capturadoEnUtc.AddHours(-5));
+        g.QrExpiraEn = capturadoEnUtc.AddHours(72);
+        g.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task AgregarIntegrante(int atsGrupoId, int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        if (await ctx.SsAtsGrupoIntegrante.AnyAsync(i => i.AtsGrupoId == atsGrupoId && i.WorkerId == workerId)) return;
+        ctx.SsAtsGrupoIntegrante.Add(new SsAtsGrupoIntegrante { AtsGrupoId = atsGrupoId, WorkerId = workerId });
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task SetIntegrantes(int atsGrupoId, List<int> workerIds)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var nuevos = workerIds.Distinct().ToHashSet();
+        var actuales = await ctx.SsAtsGrupoIntegrante.Where(i => i.AtsGrupoId == atsGrupoId).ToListAsync();
+        ctx.SsAtsGrupoIntegrante.RemoveRange(actuales.Where(a => !nuevos.Contains(a.WorkerId)));
+        var existentes = actuales.Select(a => a.WorkerId).ToHashSet();
+        foreach (var id in nuevos.Where(id => !existentes.Contains(id)))
+            ctx.SsAtsGrupoIntegrante.Add(new SsAtsGrupoIntegrante { AtsGrupoId = atsGrupoId, WorkerId = id });
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<List<AtsGrupoPdfAdhesionDto>> GetAdhesionesParaPdf(int atsGrupoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAts.AsNoTracking()
+            .Where(a => a.AtsGrupoId == atsGrupoId && a.Estado == "Firmado")
+            .OrderBy(a => a.Worker!.Person!.FullName)
+            .Select(a => new AtsGrupoPdfAdhesionDto
+            {
+                AtsId = a.Id,
+                Nombre = a.Worker != null && a.Worker.Person != null ? a.Worker.Person.FullName : "—",
+                Puesto = a.Puesto != null ? a.Puesto.Nombre : null,
+                HoraServidorFirma = a.HoraServidorFirma,
+                OrigenOffline = a.OrigenOffline,
+                HoraDispositivo = a.HoraDispositivo,
+                SelfieUrl = a.SelfieUrl,
+                FirmaUrl = a.FirmaUrl,
+                Lat = a.Lat,
+                Lng = a.Lng,
+                AutorizaNombre = a.AutorizaNombre, AutorizaCargo = a.AutorizaCargo,
+                AutorizaFirmaUrl = a.AutorizaFirmaUrl, AutorizaHoraServidor = a.AutorizaHoraServidor,
+                SsomaNombre = a.SsomaNombre, SsomaCargo = a.SsomaCargo,
+                SsomaFirmaUrl = a.SsomaFirmaUrl, SsomaHoraServidor = a.SsomaHoraServidor,
+            })
+            .ToListAsync();
     }
 
     public async Task<bool> EsAutorDeGrupo(int atsGrupoId, int workerId)
@@ -1671,6 +2095,7 @@ public class AtsRepository : IAtsRepository
 
         var ats = new SsAts
         {
+            Codigo = await SiguienteCodigoAts(ctx, grupo.ProyectoId),
             WorkerId = workerId,
             ProyectoId = grupo.ProyectoId,
             PuestoId = worker?.PuestoId,
@@ -1681,6 +2106,7 @@ public class AtsRepository : IAtsRepository
             Lugar = grupo.Lugar,
             Fecha = grupo.Fecha,
             Estado = "Borrador",
+            OrigenOffline = grupo.OrigenOffline,
             AtsGrupoId = grupo.Id,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,

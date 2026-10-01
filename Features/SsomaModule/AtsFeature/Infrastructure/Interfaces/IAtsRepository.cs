@@ -99,6 +99,11 @@ public interface IAtsRepository
     Task<bool> ExisteSelfieHash(string selfieHash);
 
     Task<AtsListResponseDto> Listar(AtsFiltroDto filtro);
+    Task<AtsGrupoListResponseDto> ListarGrupos(AtsFiltroDto filtro);
+
+    /// <summary>true = obrero de obra (no Staff/Oficina Central, no Capataz/Maestro) por cada worker — una
+    /// sola consulta para toda la página del listado, en vez de una por trabajador distinto.</summary>
+    Task<Dictionary<int, bool>> GetEsObreroDeObraBatch(IEnumerable<int> workerIds);
 
     // ── Administración de plantillas ────────────────────────────────────
     Task<int> CrearPlantilla(AtsPlantillaGuardarRequestDto dto);
@@ -127,6 +132,43 @@ public interface IAtsRepository
     Task<SsAtsGrupo?> GetGrupoEntidad(int id);
     Task<AtsGrupoEstadoDto?> GetEstadoGrupo(int id);
     Task<bool> EsAutorDeGrupo(int atsGrupoId, int workerId);
+    Task<List<AtsGrupoPdfAdhesionDto>> GetAdhesionesParaPdf(int atsGrupoId);
+
+    // ── Observaciones ──
+    Task<List<SsAtsObservacion>> GetObservaciones(int? atsId, int? grupoId);
+    Task<SsAtsObservacion?> GetObservacion(int id);
+    Task AgregarObservacion(SsAtsObservacion o);
+    Task ResolverObservacion(int id, string respuesta, int workerId, string nombre);
+    Task<int> ContarObservacionesAbiertas(int? atsId, int? grupoId);
+    Task<Dictionary<int, int>> ContarObservacionesAbiertasPorAts(IEnumerable<int> atsIds);
+    Task ResolverObservacionesDeGrupo(int grupoId, string respuesta, int workerId, string nombre);
+
+    Task AnularAts(int atsId, string motivo, int workerId);
+    /// <summary>Anula el grupo y todos sus ATS adheridos (no borra nada). Devuelve cuántos ATS anuló.</summary>
+    Task<int> AnularGrupo(int atsGrupoId, string motivo, int workerId);
+
+    // ── Seguimiento de la cuadrilla ──
+    Task<HashSet<int>> GetWorkerIdsAdheridos(int atsGrupoId);
+    Task<int?> GetAtsIdDeGrupo(int atsGrupoId, int workerId, string estado);
+    /// <summary>true si ya hay alguna validación de la cadena (Capataz/Autoriza/SSOMA) en la cuadrilla.</summary>
+    Task<bool> GrupoTieneValidaciones(int atsGrupoId);
+    Task ReabrirGrupo(int atsGrupoId, DateTime nuevaExpiracionUtc);
+    Task AgregarEventoGrupo(int atsGrupoId, string evento, int? workerId, string? detalle);
+    Task<string?> GetUltimoEventoGrupo(int atsGrupoId);
+    Task<List<AtsGrupoIntegranteDto>> GetIntegrantes(int atsGrupoId);
+    Task SetIntegrantes(int atsGrupoId, List<int> workerIds);
+    /// <summary>Agrega un integrante esperado si todavía no está (idempotente).</summary>
+    Task AgregarIntegrante(int atsGrupoId, int workerId);
+
+    // ── Sin conexión ──
+    Task<int?> GetGrupoIdPorClientId(Guid clientId);
+    /// <summary>Marca el grupo como armado sin conexión: guarda el ClientId, la hora del dispositivo, fija la fecha de
+    /// la jornada según esa hora y abre una ventana de adhesión de 72 h para sincronizar las firmas.</summary>
+    Task MarcarGrupoOffline(int atsGrupoId, Guid clientId, DateTime capturadoEnUtc);
+
+    /// <summary>Ids de los ATS Firmados del grupo a los que todavía les falta la firma de ese nivel
+    /// ("Autoriza" o "Ssoma"), sin incluir los del propio firmante salvo que sea admin.</summary>
+    Task<List<int>> GetAtsIdsPendientesDeVisto(int atsGrupoId, string rol, int callerWorkerId, bool incluirPropios);
     Task CerrarGrupo(int atsGrupoId);
     Task<List<AtsGrupoWorkerOpcionDto>> GetWorkersParaAdhesion(int proyectoId);
     Task<bool> DniCoincide(int workerId, string ultimosDigitos);

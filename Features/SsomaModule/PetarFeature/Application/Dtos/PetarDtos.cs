@@ -104,7 +104,10 @@ public class PetarItemRespuestaResponseDto
 public class PetarResponseDto
 {
     public int Id { get; set; }
+    public string? Codigo { get; set; }
     public int AtsId { get; set; }
+    /// <summary>Código del ATS del que nace este PETAR (ligados en ambos sentidos).</summary>
+    public string? AtsCodigo { get; set; }
     public int TipoId { get; set; }
     public string? TipoNombre { get; set; }
     public string? TipoCodigo { get; set; }

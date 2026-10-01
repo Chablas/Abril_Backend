@@ -5,6 +5,7 @@ using Abril_Backend.Features.AuthModule.UserFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AtsFeature.Application.Dtos;
 using Abril_Backend.Features.SsomaModule.AtsFeature.Application.Interfaces;
 using Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Interfaces;
+using Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models;
 using Abril_Backend.Infrastructure.Interfaces;
 using Abril_Backend.Shared.Helpers;
 using Abril_Backend.Shared.Services.Notificaciones.Dtos;
@@ -217,6 +218,16 @@ public class AtsService : IAtsService
         return firmaDigitalUrl == null ? null : await DescargarBytes(firmaDigitalUrl);
     }
 
+    /// <summary>TODAS las firmas del ATS/PETAR salen de la firma digital ya capturada en la autorización
+    /// (SSO-FO-151): ya no se acepta una firma dibujada al momento — así la firma es siempre la misma
+    /// y no puede variar entre documentos.</summary>
+    public async Task<byte[]> ObtenerFirmaDigitalObligatoria(int workerId)
+    {
+        var bytes = await GetFirmaDigitalAutorizacionImagen(workerId);
+        return bytes ?? throw new AbrilException(
+            "No hay una firma digital registrada para este trabajador. El Coordinador SSOMA debe capturarla en Autorizaciones antes de poder firmar.", 400);
+    }
+
     public async Task<byte[]> GenerarPlantillaAutorizacionPdf(int workerId)
     {
         var (firmaDigitalUrl, nombre, dni) = await _repository.GetFirmaDigitalAutorizacion(workerId);
@@ -304,6 +315,27 @@ public class AtsService : IAtsService
     /// cualquier proyecto, y esAdmin también lo habilita a Autorizar/Visto Bueno en cualquiera
     /// (ver PuedeAutorizarYVistoBueno).
     /// </summary>
+    /// <summary>Mismo alcance que Listar: un trabajador normal solo ve los grupos de SU proyecto actual.</summary>
+    public async Task<AtsGrupoListResponseDto> ListarGrupos(AtsFiltroDto filtro, int workerId, bool esAdmin)
+    {
+        if (!esAdmin)
+        {
+            var (_, proyectoActualId) = await _repository.GetPuestoYProyectoActual(workerId);
+            filtro.ProyectoId = proyectoActualId;
+        }
+        return await _repository.ListarGrupos(filtro);
+    }
+
+    public async Task<AtsListaInitDto> GetListaInit(int workerId)
+    {
+        var (_, proyectoActualId) = await _repository.GetPuestoYProyectoActual(workerId);
+        return new AtsListaInitDto
+        {
+            Proyectos = await _repository.GetProyectosActivos(),
+            ProyectoActualId = proyectoActualId,
+        };
+    }
+
     public async Task<AtsListResponseDto> Listar(AtsFiltroDto filtro, int workerId, bool esAdmin)
     {
         if (!esAdmin)
@@ -323,7 +355,8 @@ public class AtsService : IAtsService
         var responsablesPorProyecto = new Dictionary<int, AtsResponsablesDto>();
         var esProduccionPorProyecto = new Dictionary<int, bool>();
         var esCapatazPorProyecto = new Dictionary<int, bool>();
-        var esObreroPorWorkerId = new Dictionary<int, bool>();
+        // Una sola consulta para saber quién es obrero entre todos los ejecutantes de la página.
+        var esObreroPorWorkerId = await _repository.GetEsObreroDeObraBatch(res.Data.Select(a => a.WorkerId));
 
         var permisosPorAtsId = new Dictionary<int, (bool, bool)>();
         foreach (var ats in res.Data)
@@ -355,6 +388,9 @@ public class AtsService : IAtsService
             permisosPorAtsId[ats.Id] = (esAutoriza, esSsoma);
         }
 
+        var obsPorAts = await _repository.ContarObservacionesAbiertasPorAts(res.Data.Select(a => a.Id));
+        foreach (var a in res.Data) a.ObservacionesAbiertas = obsPorAts.GetValueOrDefault(a.Id);
+
         await _repository.CompletarInfoPetar(res.Data, permisosPorAtsId);
         return res;
     }
@@ -377,6 +413,7 @@ public class AtsService : IAtsService
     private static void MarcarPermisos(AtsResponseDto ats, bool esCapataz, bool esAutoriza, bool esSsoma)
     {
         ats.PuedeCapataz = esCapataz && ats.Estado == "Firmado" && ats.CapatazFirmaUrl == null;
+        ats.PuedeAnular = (esAutoriza || esSsoma) && ats.Estado == "Firmado";
         ats.PuedeAutorizar = esAutoriza && ats.Estado == "Firmado" && ats.AutorizaFirmaUrl == null;
         ats.PuedeVistoBuenoSsoma = esSsoma && ats.Estado == "Firmado" && ats.SsomaFirmaUrl == null;
     }
@@ -395,8 +432,7 @@ public class AtsService : IAtsService
         // (ver AtsNuevo.firmar() en el frontend).
         if (string.IsNullOrWhiteSpace(body.SelfieBase64))
             throw new AbrilException("La selfie es obligatoria para firmar el ATS.", 400);
-        if (string.IsNullOrWhiteSpace(body.FirmaBase64))
-            throw new AbrilException("La firma es obligatoria.", 400);
+        var firmaBytes = await ObtenerFirmaDigitalObligatoria(workerId);
 
         if (!await _repository.TieneConsentimiento(workerId))
         {
@@ -408,7 +444,6 @@ public class AtsService : IAtsService
         var (selfieUrl, selfieHash) = await SubirImagenConHash("selfie", workerId, body.SelfieBase64);
         var selfieDuplicada = await _repository.ExisteSelfieHash(selfieHash);
 
-        var firmaBytes = FirmaImagenHelper.DecodePng(body.FirmaBase64);
         var firmaHash = Convert.ToHexString(SHA256.HashData(firmaBytes));
         var firmaUrl = await SubirBytes("firma", workerId, firmaBytes, "png");
 
@@ -473,11 +508,11 @@ public class AtsService : IAtsService
 
     private async Task FirmarVistoComun(int id, int callerUserId, bool esAdmin, AtsFirmarVistoRequestDto body, string rol)
     {
-        if (string.IsNullOrWhiteSpace(body.FirmaBase64))
-            throw new AbrilException("La firma es obligatoria.", 400);
-
         var entidad = await _repository.GetEntidad(id) ?? throw new AbrilException("ATS no encontrado.", 404);
+        if (entidad.Estado == "Anulado") throw new AbrilException("Este ATS está anulado.", 409);
+        await ExigirSinObservacionesAbiertas(id, entidad.AtsGrupoId);
         var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
+        var firmaBytes = await ObtenerFirmaDigitalObligatoria(workerId);
 
         // Nadie se autovalida su propio ATS — excepto el Jefe/Administrador SSOMA (ver
         // PuedeAutorizarYVistoBueno): pidió acceso total, incluido sobre lo suyo.
@@ -515,7 +550,6 @@ public class AtsService : IAtsService
 
         var (nombre, cargo) = await _repository.GetNombreYCargo(workerId);
 
-        var firmaBytes = FirmaImagenHelper.DecodePng(body.FirmaBase64);
         var firmaHash = Convert.ToHexString(SHA256.HashData(firmaBytes));
         var firmaUrl = await SubirBytes(rol.ToLower(), workerId, firmaBytes, "png");
 
@@ -673,19 +707,142 @@ public class AtsService : IAtsService
     /// <summary>Cualquier trabajador puede crear un ATS grupal (decisión de Samuel 2026-09-30: en
     /// la práctica, cualquiera está en capacidad de hacerlo) — mismo gate de autorización de firma
     /// digital que el ATS individual, porque el autor también puede adherirse a su propio grupo.</summary>
-    public async Task<AtsGrupoCrearResponseDto> CrearGrupo(int workerId, AtsGuardarRequestDto dto)
+    public async Task<AtsGrupoCrearResponseDto> CrearGrupo(int workerId, AtsGuardarRequestDto dto, bool esAdmin = false)
     {
         await ExigirAutorizacionPermiso(workerId);
+
+        // Corrección con revisión: el grupo anterior queda "Reemplazado" y esta es la Rev. N+1 (se vuelve a firmar todo).
+        SsAtsGrupo? anterior = null;
+        if (dto.GrupoAnteriorId.HasValue)
+        {
+            anterior = await _repository.GetGrupoEntidad(dto.GrupoAnteriorId.Value) ?? throw new AbrilException("El ATS grupal que intentas corregir no existe.", 404);
+            if (anterior.Estado is "Anulado" or "Reemplazado")
+                throw new AbrilException($"Este ATS grupal ya está {anterior.Estado.ToLower()} — no se puede corregir.", 409);
+            var (esResidente, esProduccion, _) = await RolesEnProyecto(anterior.ProyectoId, workerId);
+            if (!esAdmin && !esResidente && !esProduccion && !await _repository.EsAutorDeGrupo(anterior.Id, workerId))
+                throw new AbrilException("Solo quien creó el ATS grupal, el Residente/Producción o un administrador pueden corregirlo.", 403);
+            dto.ProyectoId = anterior.ProyectoId;
+        }
+
         Validar(dto);
         var grupo = await _repository.CrearGrupo(workerId, dto);
+        // Quien arma el ATS grupal también es un ejecutante: queda como integrante esperado para que aparezca como
+        // pendiente de firma (y se le avise en el panel) hasta que firme como los demás.
+        await _repository.AgregarIntegrante(grupo.Id, workerId);
+        if (anterior != null)
+        {
+            var (nombre, _) = await _repository.GetNombreYCargo(workerId);
+            await _repository.ResolverObservacionesDeGrupo(anterior.Id, $"Corregido en la revisión {grupo.Revision}", workerId, nombre);
+            await _repository.AgregarEventoGrupo(anterior.Id, "Reemplazado", workerId, $"Reemplazado por la revisión {grupo.Revision}");
+        }
         return new AtsGrupoCrearResponseDto { Id = grupo.Id, QrToken = grupo.QrToken.ToString(), QrExpiraEn = grupo.QrExpiraEn };
     }
 
     public async Task<AtsGrupoEstadoDto> GetEstadoGrupo(int id, int workerId, bool esAdmin)
     {
-        if (!esAdmin && !await _repository.EsAutorDeGrupo(id, workerId))
+        var grupo = await _repository.GetGrupoEntidad(id) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+
+        // Lo ve su autor y quienes firman la cadena en ese proyecto (Residente/Producción/SSOMA) — antes solo
+        // el autor, y por eso el Residente no podía abrir el panel para firmar.
+        var responsables = await _repository.GetResponsables(grupo.ProyectoId);
+        var email = await _repository.GetEmailCorporativoWorker(workerId);
+        var esResidente = responsables.ResidenteWorkerId == workerId;
+        var esProduccion = !esResidente && await _repository.EsProduccionDeProyecto(workerId, grupo.ProyectoId);
+        var esSsoma = (email != null && responsables.SsomaEmails.Contains(email, StringComparer.OrdinalIgnoreCase))
+                      || await _repository.EsPrevencionistaAbril(workerId);
+        var esAutor = await _repository.EsAutorDeGrupo(id, workerId);
+        if (!esAdmin && !esAutor && !esResidente && !esProduccion && !esSsoma)
             throw new AbrilException("Este ATS grupal no te pertenece.", 403);
-        return await _repository.GetEstadoGrupo(id) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+
+        var estado = await _repository.GetEstadoGrupo(id) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        estado.Esperados = await _repository.GetIntegrantes(id);
+        estado.SoyAutor = esAutor;
+        estado.YoYaFirme = (await _repository.GetWorkerIdsAdheridos(id)).Contains(workerId);
+        estado.PuedeEditarIntegrantes = esAdmin || esAutor;
+        // Reabrir: su autor, quienes validan la cadena en el proyecto (Residente/Producción/SSOMA) o un admin —
+        // los que firman son justo quienes necesitan poder sumar a alguien que faltó.
+        estado.PuedeReabrir = (esAdmin || esAutor || esResidente || esProduccion || esSsoma) && estado.Estado == "Cerrado" && grupo.Fecha == DateOnly.FromDateTime(DateTime.Today);
+        estado.AnuladoMotivo = grupo.AnuladoMotivo;
+        estado.PuedeAnular = estado.Estado != "Anulado"
+            && (esAdmin || esResidente || esProduccion || esSsoma || (esAutor && !await _repository.GrupoTieneValidaciones(id)));
+        if (estado.Estado is "Anulado" or "Reemplazado")
+        {
+            estado.PuedeAutorizar = false;
+            estado.PuedeVistoBuenoSsoma = false;
+            estado.PuedeReabrir = false;
+        }
+        estado.UltimoEvento = await _repository.GetUltimoEventoGrupo(id);
+        estado.PuedeCorregir = estado.Estado is "Activo" or "Cerrado" && (esAdmin || esAutor || esResidente || esProduccion);
+        estado.PuedeAutorizar = (esAdmin || esResidente || esProduccion) && estado.AutorizaFirmados < estado.EjecutantesFirmados;
+        estado.PuedeVistoBuenoSsoma = (esAdmin || esSsoma) && estado.SsomaFirmados < estado.EjecutantesFirmados;
+        if (estado.Estado is "Anulado" or "Reemplazado")
+        {
+            estado.PuedeAutorizar = false;
+            estado.PuedeVistoBuenoSsoma = false;
+        }
+        return estado;
+    }
+
+    /// <summary>PDF del ATS grupal: firmas de todos los trabajadores + una sola firma de Capataz (si aplica),
+    /// Autoriza y SSOMA. El contenido (pasos/IPERC) sale del primer ATS adherido, que es copia del grupo.</summary>
+    public async Task<byte[]> GenerarPdfGrupo(int grupoId, int workerId, bool esAdmin)
+    {
+        var estado = await GetEstadoGrupo(grupoId, workerId, esAdmin); // valida acceso
+        var grupo = await _repository.GetGrupoEntidad(grupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        var adhesiones = await _repository.GetAdhesionesParaPdf(grupoId);
+        if (adhesiones.Count == 0)
+            throw new AbrilException("Todavía no hay trabajadores con el ATS firmado en esta cuadrilla.", 409);
+
+        var contenido = await _repository.GetPorId(adhesiones[0].AtsId) ?? throw new AbrilException("ATS no encontrado.", 404);
+
+        // Imágenes en paralelo — una cuadrilla grande son decenas de selfies/firmas.
+        var selfies = await Task.WhenAll(adhesiones.Select(a => a.SelfieUrl != null ? DescargarBytes(a.SelfieUrl) : Task.FromResult<byte[]?>(null)));
+        var firmas = await Task.WhenAll(adhesiones.Select(a => a.FirmaUrl != null ? DescargarBytes(a.FirmaUrl) : Task.FromResult<byte[]?>(null)));
+        var filas = adhesiones.Select((a, i) => new AtsPdfService.GrupalFila(a.Nombre, a.Puesto, a.HoraServidorFirma, selfies[i], firmas[i], a.Lat, a.Lng, a.OrigenOffline, a.HoraDispositivo)).ToList();
+
+        // Integrantes esperados que todavía no firmaron (incluido quien armó el ATS) salen como PENDIENTE.
+        foreach (var e in (await _repository.GetIntegrantes(grupoId)).Where(x => !x.Adherido))
+            filas.Add(new AtsPdfService.GrupalFila(e.Nombre + (e.WorkerId == grupo.CreadoPorWorkerId ? " (autor)" : ""), "Pendiente de firmar", null, null, null, null, null));
+
+        // Autoriza y SSOMA se firman por cuadrilla: es la misma firma en cada ATS, se toma la primera que exista.
+        var conAutoriza = adhesiones.FirstOrDefault(a => a.AutorizaFirmaUrl != null);
+        var conSsoma = adhesiones.FirstOrDefault(a => a.SsomaFirmaUrl != null);
+        var autoriza = new AtsPdfService.FirmaCadena(conAutoriza?.AutorizaNombre, conAutoriza?.AutorizaCargo, conAutoriza?.AutorizaHoraServidor,
+            conAutoriza?.AutorizaFirmaUrl != null ? await DescargarBytes(conAutoriza.AutorizaFirmaUrl) : null);
+        var ssoma = new AtsPdfService.FirmaCadena(conSsoma?.SsomaNombre, conSsoma?.SsomaCargo, conSsoma?.SsomaHoraServidor,
+            conSsoma?.SsomaFirmaUrl != null ? await DescargarBytes(conSsoma.SsomaFirmaUrl) : null);
+        var capataz = new AtsPdfService.FirmaCadena(grupo.CapatazNombre, grupo.CapatazCargo, grupo.CapatazHoraServidor,
+            grupo.CapatazFirmaUrl != null ? await DescargarBytes(grupo.CapatazFirmaUrl) : null);
+
+        byte[]? logoBytes = null;
+        var logoPath = _logoPaths.FirstOrDefault(File.Exists);
+        if (logoPath != null)
+            logoBytes = await File.ReadAllBytesAsync(logoPath);
+
+        return AtsPdfService.GenerarGrupal(contenido, grupo.Codigo ?? $"GRUPAL-{grupoId:D4}", filas, estado.RequiereCapataz, capataz, autoriza, ssoma, logoBytes);
+    }
+
+    /// <summary>Residente/Producción (rol "Autoriza") o SSOMA firman de una vez a TODA la cuadrilla: se aplica su
+    /// firma digital a cada ATS adherido y firmado que todavía no la tenga. Cada ATS pasa por las mismas
+    /// validaciones de siempre (FirmarVistoComun); el propio firmante queda fuera de su ATS, salvo admin.
+    /// Devuelve cuántos ATS firmó.</summary>
+    public async Task<int> FirmarVistoGrupo(int grupoId, string rol, int callerUserId, bool esAdmin)
+    {
+        if (rol != "Autoriza" && rol != "Ssoma")
+            throw new AbrilException("Rol de firma inválido.", 400);
+        var grupo = await _repository.GetGrupoEntidad(grupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
+
+        if (grupo.Estado is "Anulado" or "Reemplazado") throw new AbrilException($"Este ATS grupal está {grupo.Estado.ToLower()} — ya no se puede firmar.", 409);
+        await ExigirSinObservacionesAbiertas(null, grupoId);
+        var ids = await _repository.GetAtsIdsPendientesDeVisto(grupoId, rol, workerId, esAdmin);
+        if (ids.Count == 0)
+            throw new AbrilException("No hay ATS de esta cuadrilla pendientes de tu firma.", 409);
+
+        var body = new AtsFirmarVistoRequestDto(); // la firma sale de la firma digital registrada
+        foreach (var atsId in ids)
+            await FirmarVistoComun(atsId, callerUserId, esAdmin, body, rol);
+        return ids.Count;
     }
 
     public async Task CerrarGrupo(int id, int workerId, bool esAdmin)
@@ -693,6 +850,281 @@ public class AtsService : IAtsService
         if (!esAdmin && !await _repository.EsAutorDeGrupo(id, workerId))
             throw new AbrilException("Este ATS grupal no te pertenece.", 403);
         await _repository.CerrarGrupo(id);
+        await _repository.AgregarEventoGrupo(id, "Cerrado", workerId, null);
+    }
+
+    /// <summary>Reabre un grupo cerrado el MISMO día (para sumar a alguien que faltó) — solo su autor o el admin,
+    /// y queda registrado quién lo hizo. Las firmas de la cadena ya dadas no se tocan: el nuevo adherido las deja
+    /// pendientes y el panel vuelve a habilitar los botones de firma.</summary>
+    public async Task ReabrirGrupo(int grupoId, int workerId, bool esAdmin)
+    {
+        var grupo = await _repository.GetGrupoEntidad(grupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        if (!esAdmin && !await _repository.EsAutorDeGrupo(grupoId, workerId))
+        {
+            var (esResidente, esProduccion, esSsoma) = await RolesEnProyecto(grupo.ProyectoId, workerId);
+            if (!esResidente && !esProduccion && !esSsoma)
+                throw new AbrilException("Solo quien creó el ATS grupal, el Residente/Producción, SSOMA o un administrador pueden reabrirlo.", 403);
+        }
+        if (grupo.Estado == "Anulado")
+            throw new AbrilException("Este ATS grupal está anulado — no se puede reabrir.", 409);
+        if (grupo.Estado == "Activo")
+            throw new AbrilException("Este ATS grupal ya está abierto.", 409);
+        if (grupo.Fecha != DateOnly.FromDateTime(DateTime.Today))
+            throw new AbrilException("Solo se puede reabrir el mismo día. Si es otra jornada, crea un ATS grupal nuevo.", 409);
+
+        await _repository.ReabrirGrupo(grupoId, grupo.Fecha.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc));
+        await _repository.AgregarEventoGrupo(grupoId, "Reabierto", workerId, null);
+    }
+
+    /// <summary>Contenido del grupo con la forma de un ATS — para precargar el wizard al corregir (?corregirGrupo=id).</summary>
+    public async Task<AtsResponseDto> GetContenidoGrupo(int grupoId, int workerId, bool esAdmin)
+    {
+        await GetEstadoGrupo(grupoId, workerId, esAdmin); // valida acceso
+        var g = await _repository.GetGrupoEntidad(grupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        return new AtsResponseDto
+        {
+            ProyectoId = g.ProyectoId,
+            PlantillaId = g.PlantillaId,
+            Actividad = g.Actividad,
+            TorreNombre = g.TorreNombre,
+            Pisos = g.Pisos,
+            Lugar = g.Lugar,
+            Pasos = g.Pasos.OrderBy(p => p.Orden).Select(p => new AtsPasoResponseDto { PasoId = p.PasoId, CategoriaNombre = p.CategoriaNombre, Texto = p.Texto, Aplica = p.Aplica }).ToList(),
+            Epps = g.Epps.Select(e => e.Nombre).ToList(),
+            Herramientas = g.Herramientas.Select(h => h.Nombre).ToList(),
+            Riesgos = g.RiesgosDetalle.OrderBy(r => r.Orden).Select(r => new AtsRiesgoDetalleResponseDto
+            {
+                PeligroId = r.PeligroId, RiesgoId = r.RiesgoId, PeligroNombre = r.PeligroNombre, RiesgoNombre = r.RiesgoNombre,
+                RiesgoBase = r.RiesgoBase, Controles = r.Controles, RiesgoResidual = r.RiesgoResidual,
+            }).ToList(),
+        };
+    }
+
+    // ── Observaciones ──────────────────────────────────────────────────────
+
+    private async Task ExigirSinObservacionesAbiertas(int? atsId, int? grupoId)
+    {
+        var n = 0;
+        if (atsId.HasValue) n += await _repository.ContarObservacionesAbiertas(atsId, null);
+        if (grupoId.HasValue) n += await _repository.ContarObservacionesAbiertas(null, grupoId);
+        if (n > 0)
+            throw new AbrilException($"Hay {n} observación(es) abierta(s) — deben resolverse antes de firmar la validación.", 409);
+    }
+
+    /// <summary>Quién puede observar/resolver: observan Capataz del proyecto, Residente, Producción, SSOMA y admin (no
+    /// sobre su propio ATS, salvo admin); resuelven además el dueño del ATS / autor del grupo.</summary>
+    private async Task<(bool PuedeObservar, bool PuedeResolver, string Rol)> PermisosObservacion(int proyectoId, int ownerWorkerId, int workerId, bool esAdmin)
+    {
+        var (esResidente, esProduccion, esSsoma) = await RolesEnProyecto(proyectoId, workerId);
+        var esCapataz = await _repository.EsCapatazDeProyecto(workerId, proyectoId);
+        var esOwner = ownerWorkerId == workerId;
+        var rol = esSsoma ? "Ssoma" : (esResidente || esProduccion) ? "Autoriza" : esCapataz ? "Capataz" : "Admin";
+        var puedeObservar = (esAdmin || esResidente || esProduccion || esSsoma || esCapataz) && (!esOwner || esAdmin);
+        var puedeResolver = esAdmin || esOwner || esResidente || esProduccion || esSsoma;
+        return (puedeObservar, puedeResolver, rol);
+    }
+
+    private static AtsObservacionDto ObsDto(SsAtsObservacion o) => new()
+    {
+        Id = o.Id, Rol = o.Rol, AutorNombre = o.AutorNombre, Texto = o.Texto, Estado = o.Estado,
+        Respuesta = o.Respuesta, ResueltaPorNombre = o.ResueltaPorNombre, CreatedAt = o.CreatedAt, ResueltaEn = o.ResueltaEn,
+    };
+
+    public async Task<AtsObservacionesDto> GetObservacionesAts(int atsId, int callerUserId, bool esAdmin)
+    {
+        var ats = await _repository.GetEntidad(atsId) ?? throw new AbrilException("ATS no encontrado.", 404);
+        var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
+        var (puedeObservar, puedeResolver, _) = await PermisosObservacion(ats.ProyectoId, ats.WorkerId, workerId, esAdmin);
+        var lista = await _repository.GetObservaciones(atsId, null);
+        return new AtsObservacionesDto
+        {
+            Observaciones = lista.Select(ObsDto).ToList(),
+            PuedeObservar = puedeObservar && ats.Estado == "Firmado",
+            PuedeResolver = puedeResolver,
+        };
+    }
+
+    public async Task<AtsObservacionesDto> GetObservacionesGrupo(int grupoId, int callerUserId, bool esAdmin)
+    {
+        var grupo = await _repository.GetGrupoEntidad(grupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
+        var (puedeObservar, puedeResolver, _) = await PermisosObservacion(grupo.ProyectoId, grupo.CreadoPorWorkerId, workerId, esAdmin);
+        var lista = await _repository.GetObservaciones(null, grupoId);
+        return new AtsObservacionesDto
+        {
+            Observaciones = lista.Select(ObsDto).ToList(),
+            PuedeObservar = puedeObservar && grupo.Estado is "Activo" or "Cerrado",
+            PuedeResolver = puedeResolver,
+        };
+    }
+
+    private static string ValidarTextoObservacion(string? texto)
+    {
+        var t = texto?.Trim() ?? string.Empty;
+        if (t.Length < 5) throw new AbrilException("Describe la observación (mínimo 5 caracteres).", 400);
+        return t.Length > 1000 ? t[..1000] : t;
+    }
+
+    public async Task CrearObservacionAts(int atsId, string texto, int callerUserId, bool esAdmin)
+    {
+        var t = ValidarTextoObservacion(texto);
+        var ats = await _repository.GetEntidad(atsId) ?? throw new AbrilException("ATS no encontrado.", 404);
+        if (ats.Estado != "Firmado") throw new AbrilException("Solo se observa un ATS ya firmado.", 409);
+        var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
+        var (puedeObservar, _, rol) = await PermisosObservacion(ats.ProyectoId, ats.WorkerId, workerId, esAdmin);
+        if (!puedeObservar) throw new AbrilException("No tienes permiso para observar este ATS.", 403);
+
+        var (nombre, _) = await _repository.GetNombreYCargo(workerId);
+        await _repository.AgregarObservacion(new SsAtsObservacion { AtsId = atsId, Rol = rol, AutorWorkerId = workerId, AutorNombre = nombre, Texto = t });
+        await AvisarObservacion(ats.WorkerId, $"{nombre} observó tu ATS", t, "/ssoma/gestion/ats");
+    }
+
+    public async Task CrearObservacionGrupo(int grupoId, string texto, int callerUserId, bool esAdmin)
+    {
+        var t = ValidarTextoObservacion(texto);
+        var grupo = await _repository.GetGrupoEntidad(grupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        if (grupo.Estado is not ("Activo" or "Cerrado")) throw new AbrilException("Este ATS grupal ya no admite observaciones.", 409);
+        var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
+        var (puedeObservar, _, rol) = await PermisosObservacion(grupo.ProyectoId, grupo.CreadoPorWorkerId, workerId, esAdmin);
+        if (!puedeObservar) throw new AbrilException("No tienes permiso para observar este ATS grupal.", 403);
+
+        var (nombre, _) = await _repository.GetNombreYCargo(workerId);
+        await _repository.AgregarObservacion(new SsAtsObservacion { AtsGrupoId = grupoId, Rol = rol, AutorWorkerId = workerId, AutorNombre = nombre, Texto = t });
+        await AvisarObservacion(grupo.CreadoPorWorkerId, $"{nombre} observó el ATS grupal", t, $"/ssoma/gestion/ats/grupo/{grupoId}");
+    }
+
+    public async Task ResolverObservacion(int observacionId, string respuesta, int callerUserId, bool esAdmin)
+    {
+        var r = ValidarTextoObservacion(respuesta);
+        var obs = await _repository.GetObservacion(observacionId) ?? throw new AbrilException("Observación no encontrada.", 404);
+        if (obs.Estado != "Abierta") throw new AbrilException("Esta observación ya fue resuelta.", 409);
+
+        var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
+        int proyectoId, ownerWorkerId;
+        if (obs.AtsId.HasValue)
+        {
+            var ats = await _repository.GetEntidad(obs.AtsId.Value) ?? throw new AbrilException("ATS no encontrado.", 404);
+            (proyectoId, ownerWorkerId) = (ats.ProyectoId, ats.WorkerId);
+        }
+        else
+        {
+            var g = await _repository.GetGrupoEntidad(obs.AtsGrupoId!.Value) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+            (proyectoId, ownerWorkerId) = (g.ProyectoId, g.CreadoPorWorkerId);
+        }
+        var (_, puedeResolver, _) = await PermisosObservacion(proyectoId, ownerWorkerId, workerId, esAdmin);
+        if (!puedeResolver && obs.AutorWorkerId != workerId)
+            throw new AbrilException("No tienes permiso para resolver esta observación.", 403);
+
+        var (nombre, _) = await _repository.GetNombreYCargo(workerId);
+        await _repository.ResolverObservacion(observacionId, r, workerId, nombre);
+        await AvisarObservacion(obs.AutorWorkerId, $"{nombre} resolvió tu observación", r,
+            obs.AtsGrupoId.HasValue ? $"/ssoma/gestion/ats/grupo/{obs.AtsGrupoId}" : "/ssoma/gestion/ats");
+    }
+
+    /// <summary>Aviso por la campanita al dueño del ATS / autor del grupo / autor de la observación — best-effort.</summary>
+    private async Task AvisarObservacion(int destinatarioWorkerId, string titulo, string descripcion, string referencia)
+    {
+        try
+        {
+            var email = await _repository.GetEmailCorporativoWorker(destinatarioWorkerId);
+            if (string.IsNullOrWhiteSpace(email)) return;
+            await _notificacionesService.CrearPorCorreosAsync(
+                "ATS_PENDIENTE_FIRMA",
+                [email],
+                origenUserId: null,
+                items: [new NuevaNotificacionDto { Titulo = titulo, Subtitulo = "ATS", Descripcion = descripcion, Referencia = referencia }]);
+        }
+        catch { /* best-effort */ }
+    }
+
+    private async Task<(bool EsResidente, bool EsProduccion, bool EsSsoma)> RolesEnProyecto(int proyectoId, int workerId)
+    {
+        var responsables = await _repository.GetResponsables(proyectoId);
+        var email = await _repository.GetEmailCorporativoWorker(workerId);
+        var esResidente = responsables.ResidenteWorkerId == workerId;
+        var esProduccion = !esResidente && await _repository.EsProduccionDeProyecto(workerId, proyectoId);
+        var esSsoma = (email != null && responsables.SsomaEmails.Contains(email, StringComparer.OrdinalIgnoreCase))
+                      || await _repository.EsPrevencionistaAbril(workerId);
+        return (esResidente, esProduccion, esSsoma);
+    }
+
+    private static string ValidarMotivo(string? motivo)
+    {
+        var m = motivo?.Trim() ?? string.Empty;
+        if (m.Length < 10)
+            throw new AbrilException("Escribe el motivo de la anulación (mínimo 10 caracteres) — queda registrado.", 400);
+        return m.Length > 300 ? m[..300] : m;
+    }
+
+    /// <summary>Anula UN ATS firmado (nunca se borra: queda Estado "Anulado" con motivo, quién y cuándo). Quienes
+    /// validan en el proyecto (Residente/Producción/SSOMA) o un admin; si el ATS es de una cuadrilla, también
+    /// su autor mientras la cadena no tenga firmas.</summary>
+    public async Task AnularAts(int atsId, string motivo, int callerUserId, bool esAdmin)
+    {
+        var m = ValidarMotivo(motivo);
+        var ats = await _repository.GetEntidad(atsId) ?? throw new AbrilException("ATS no encontrado.", 404);
+        if (ats.Estado == "Anulado") throw new AbrilException("Este ATS ya está anulado.", 409);
+        if (ats.Estado != "Firmado") throw new AbrilException("Solo se anula un ATS ya firmado (un borrador simplemente se descarta).", 409);
+
+        var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
+        var (esResidente, esProduccion, esSsoma) = await RolesEnProyecto(ats.ProyectoId, workerId);
+        var esAutorGrupo = ats.AtsGrupoId.HasValue && await _repository.EsAutorDeGrupo(ats.AtsGrupoId.Value, workerId)
+                           && !await _repository.GrupoTieneValidaciones(ats.AtsGrupoId.Value);
+        if (!esAdmin && !esResidente && !esProduccion && !esSsoma && !esAutorGrupo)
+            throw new AbrilException("No tienes permiso para anular este ATS.", 403);
+
+        await _repository.AnularAts(atsId, m, workerId);
+
+        var hashAnterior = await _repository.GetUltimoHashAuditLog(atsId);
+        var hash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{hashAnterior}|Anulado|{atsId}|{DateTime.UtcNow:O}")));
+        await _repository.AgregarAuditLog(atsId, "Anulado", callerUserId, null, m, hashAnterior ?? string.Empty, hash);
+    }
+
+    public async Task AnularGrupo(int grupoId, string motivo, int callerUserId, bool esAdmin)
+    {
+        var m = ValidarMotivo(motivo);
+        var grupo = await _repository.GetGrupoEntidad(grupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        if (grupo.Estado == "Anulado") throw new AbrilException("Este ATS grupal ya está anulado.", 409);
+
+        var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
+        var (esResidente, esProduccion, esSsoma) = await RolesEnProyecto(grupo.ProyectoId, workerId);
+        var esAutorSinValidar = await _repository.EsAutorDeGrupo(grupoId, workerId) && !await _repository.GrupoTieneValidaciones(grupoId);
+        if (!esAdmin && !esResidente && !esProduccion && !esSsoma && !esAutorSinValidar)
+            throw new AbrilException("No tienes permiso para anular este ATS grupal.", 403);
+
+        var n = await _repository.AnularGrupo(grupoId, m, workerId);
+        await _repository.AgregarEventoGrupo(grupoId, "Anulado", workerId, $"{m} ({n} ATS)");
+    }
+
+    public async Task<List<AtsGrupoWorkerOpcionDto>> GetCandidatosGrupo(int grupoId, int workerId, bool esAdmin)
+    {
+        var grupo = await _repository.GetGrupoEntidad(grupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        if (!esAdmin && !await _repository.EsAutorDeGrupo(grupoId, workerId))
+            throw new AbrilException("Solo quien creó el ATS grupal puede definir sus integrantes.", 403);
+        return await _repository.GetWorkersParaAdhesion(grupo.ProyectoId);
+    }
+
+    public async Task SetIntegrantesGrupo(int grupoId, List<int> workerIds, int workerId, bool esAdmin)
+    {
+        var grupo = await _repository.GetGrupoEntidad(grupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        if (!esAdmin && !await _repository.EsAutorDeGrupo(grupoId, workerId))
+            throw new AbrilException("Solo quien creó el ATS grupal puede definir sus integrantes.", 403);
+
+        // Solo trabajadores del proyecto del grupo habilitados para firmar.
+        var validos = (await _repository.GetWorkersParaAdhesion(grupo.ProyectoId)).Select(w => w.WorkerId).ToHashSet();
+        await _repository.SetIntegrantes(grupoId, workerIds.Where(validos.Contains).ToList());
+    }
+
+    /// <summary>Para quien ya firmó el ATS y vuelve a entrar al link (p. ej. para firmar un PETAR creado después):
+    /// confirma identidad con el DNI y devuelve el id de SU ATS firmado en este grupo, o null si no ha firmado.</summary>
+    public async Task<int?> GetMiAtsPublico(Guid token, AtsGrupoMiAtsRequestDto body)
+    {
+        var grupo = await _repository.GetGrupoPorToken(token) ?? throw new AbrilException("Enlace inválido.", 404);
+        if (grupo.QrExpiraEn < DateTime.UtcNow)
+            throw new AbrilException("Este enlace venció — el ATS grupal era para otra jornada.", 409);
+        if (!await _repository.DniCoincide(body.WorkerId, body.DniConfirmacion))
+            throw new AbrilException("Los dígitos de DNI no coinciden con el trabajador seleccionado.", 400);
+        return await _repository.GetAtsIdDeGrupo(grupo.Id, body.WorkerId, "Firmado");
     }
 
     /// <summary>Página pública que abre el QR — sin login. "Válido" exige grupo existente, Activo,
@@ -735,7 +1167,10 @@ public class AtsService : IAtsService
     public async Task<List<AtsGrupoWorkerOpcionDto>> GetWorkersParaAdhesion(Guid token)
     {
         var grupo = await _repository.GetGrupoPorToken(token) ?? throw new AbrilException("Enlace inválido.", 404);
-        return await _repository.GetWorkersParaAdhesion(grupo.ProyectoId);
+        var opciones = await _repository.GetWorkersParaAdhesion(grupo.ProyectoId);
+        var yaFirmaron = await _repository.GetWorkerIdsAdheridos(grupo.Id);
+        foreach (var o in opciones) o.YaFirmo = yaFirmaron.Contains(o.WorkerId);
+        return opciones;
     }
 
     /// <summary>Firma liviana de adhesión — sin login (el token del QR es el único candado). El
@@ -758,8 +1193,18 @@ public class AtsService : IAtsService
             throw new AbrilException("Este trabajador no está habilitado para firmar en este proyecto.", 403);
 
         await ExigirAutorizacionPermiso(body.WorkerId);
+        await ObtenerFirmaDigitalObligatoria(body.WorkerId); // antes de crear el borrador, para no dejarlo huérfano
 
-        var atsId = await _repository.CrearDesdeGrupo(body.WorkerId, grupo);
+        // Una sola adhesión por trabajador: si ya firmó, no se crea otro ATS (el flujo público lo manda a los PETAR).
+        if (await _repository.GetAtsIdDeGrupo(grupo.Id, body.WorkerId, "Firmado") is not null)
+            throw new AbrilException("Ya firmaste este ATS grupal.", 409);
+
+        // ¿La cuadrilla ya tenía firmas de la cadena? Entonces este nuevo integrante las deja pendientes → se avisa.
+        var teniaValidaciones = await _repository.GrupoTieneValidaciones(grupo.Id);
+
+        // Reutiliza un borrador previo del mismo trabajador (firma que falló a medias) en vez de dejar huérfanos.
+        var atsId = await _repository.GetAtsIdDeGrupo(grupo.Id, body.WorkerId, "Borrador")
+                    ?? await _repository.CrearDesdeGrupo(body.WorkerId, grupo);
 
         var firmarDto = new AtsFirmarRequestDto
         {
@@ -773,7 +1218,43 @@ public class AtsService : IAtsService
         };
         await Firmar(atsId, body.WorkerId, firmarDto, ipOrigen, userAgent);
 
+        if (teniaValidaciones)
+            await AvisarNuevoEnGrupoValidado(grupo, body.WorkerId);
+
         return atsId;
+    }
+
+    /// <summary>Se sumó alguien a una cuadrilla cuya cadena ya estaba (en parte) firmada: Residente/SSOMA y el
+    /// Capataz deben volver a validar. Aviso por la campanita; best-effort, no bloquea la firma del trabajador.</summary>
+    private async Task AvisarNuevoEnGrupoValidado(SsAtsGrupo grupo, int workerIdNuevo)
+    {
+        try
+        {
+            var (nombre, _) = await _repository.GetNombreYCargo(workerIdNuevo);
+            var responsables = await _repository.GetResponsables(grupo.ProyectoId);
+            var destinatarios = new List<string>();
+            if (!string.IsNullOrWhiteSpace(responsables.ResidenteEmail)) destinatarios.Add(responsables.ResidenteEmail);
+            destinatarios.AddRange(responsables.SsomaEmails);
+            if (grupo.CapatazFirmaUrl != null && grupo.CapatazWorkerId.HasValue)
+            {
+                var emailCapataz = await _repository.GetEmailPersonalAutorizacion(grupo.CapatazWorkerId.Value);
+                if (!string.IsNullOrWhiteSpace(emailCapataz)) destinatarios.Add(emailCapataz);
+            }
+            if (destinatarios.Count == 0) return;
+
+            await _notificacionesService.CrearPorCorreosAsync(
+                "ATS_PENDIENTE_FIRMA",
+                destinatarios,
+                origenUserId: null,
+                items: [new NuevaNotificacionDto
+                {
+                    Titulo = "Se sumó un trabajador a un ATS grupal ya validado",
+                    Subtitulo = responsables.ProyectoNombre,
+                    Descripcion = $"{nombre} firmó el ATS grupal \"{grupo.Actividad}\" después de la validación — hay que volver a firmar para incluirlo.",
+                    Referencia = $"/ssoma/gestion/ats/grupo/{grupo.Id}",
+                }]);
+        }
+        catch { /* best-effort */ }
     }
 
     // ── Firma única del Capataz por cuadrilla (link público, sin login) ─────
@@ -808,23 +1289,24 @@ public class AtsService : IAtsService
     /// regla que el link público: solo con adheridos y solo si no está ya vigente.</summary>
     public async Task FirmarCapatazGrupoLogueado(int grupoId, int callerUserId, bool esAdmin, AtsFirmarVistoRequestDto body)
     {
-        if (string.IsNullOrWhiteSpace(body.FirmaBase64))
-            throw new AbrilException("La firma es obligatoria.", 400);
-
         var grupo = await _repository.GetGrupoEntidad(grupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
         var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
+        var firmaBytes = await ObtenerFirmaDigitalObligatoria(workerId);
 
         if (!esAdmin && !await _repository.EsCapatazDeProyecto(workerId, grupo.ProyectoId))
             throw new AbrilException("Solo el Capataz o Maestro de obra de este proyecto puede firmar este nivel.", 403);
 
+        if (grupo.Estado is "Anulado" or "Reemplazado") throw new AbrilException($"Este ATS grupal está {grupo.Estado.ToLower()}.", 409);
+        await ExigirSinObservacionesAbiertas(null, grupoId);
         var estado = await _repository.GetEstadoGrupo(grupoId);
+        if (estado is not null && !estado.RequiereCapataz)
+            throw new AbrilException("Esta cuadrilla es de Staff/supervisores — no requiere firma de Capataz.", 409);
         if (estado is null || estado.TotalAdhesiones == 0)
             throw new AbrilException("Todavía no hay trabajadores adheridos — firma cuando la cuadrilla ya haya firmado.", 409);
         if (estado.CapatazVigente)
             throw new AbrilException("La firma de Capataz de este ATS grupal ya está vigente — no se sumó nadie nuevo desde entonces.", 409);
 
         var (nombre, cargo) = await _repository.GetNombreYCargo(workerId);
-        var firmaBytes = FirmaImagenHelper.DecodePng(body.FirmaBase64);
         var firmaHash = Convert.ToHexString(SHA256.HashData(firmaBytes));
         var firmaUrl = await SubirBytes("capatazgrupo", workerId, firmaBytes, "png");
 
@@ -833,8 +1315,6 @@ public class AtsService : IAtsService
 
     public async Task FirmarCapatazPublico(Guid token, AtsGrupoCapatazFirmarRequestDto body)
     {
-        if (string.IsNullOrWhiteSpace(body.FirmaBase64))
-            throw new AbrilException("La firma es obligatoria.", 400);
         if (string.IsNullOrWhiteSpace(body.SelfieBase64))
             throw new AbrilException("La selfie es obligatoria — es la prueba de que estás en obra.", 400);
 
@@ -842,7 +1322,11 @@ public class AtsService : IAtsService
         if (grupo.QrExpiraEn < DateTime.UtcNow)
             throw new AbrilException("Este enlace venció — el ATS grupal era para otra jornada.", 409);
 
+        if (grupo.Estado is "Anulado" or "Reemplazado") throw new AbrilException($"Este ATS grupal está {grupo.Estado.ToLower()}.", 409);
+        await ExigirSinObservacionesAbiertas(null, grupo.Id);
         var estado = await _repository.GetEstadoGrupo(grupo.Id);
+        if (estado is not null && !estado.RequiereCapataz)
+            throw new AbrilException("Esta cuadrilla es de Staff/supervisores — no requiere firma de Capataz.", 409);
         if (estado is null || estado.TotalAdhesiones == 0)
             throw new AbrilException("Todavía no hay trabajadores adheridos — firma cuando la cuadrilla ya haya firmado.", 409);
         if (estado.CapatazVigente)
@@ -856,7 +1340,7 @@ public class AtsService : IAtsService
             throw new AbrilException("Solo el Capataz o Maestro de obra de este proyecto puede firmar este nivel.", 403);
 
         var (nombre, cargo) = await _repository.GetNombreYCargo(body.WorkerId);
-        var firmaBytes = FirmaImagenHelper.DecodePng(body.FirmaBase64);
+        var firmaBytes = await ObtenerFirmaDigitalObligatoria(body.WorkerId);
         var firmaHash = Convert.ToHexString(SHA256.HashData(firmaBytes));
         var firmaUrl = await SubirBytes("capatazgrupo", body.WorkerId, firmaBytes, "png");
 
@@ -928,6 +1412,32 @@ public class AtsService : IAtsService
             throw new AbrilException("Este trabajador no está habilitado para firmar en este proyecto.", 403);
 
         body.Contenido.ProyectoId = proyectoId;
+        body.Contenido.GrupoAnteriorId = null; // reemplazar un grupo exige sesión y permisos — nunca desde el link público
+
+        // Grupo armado sin conexión: el reintento con el mismo ClientId devuelve el grupo ya creado (no duplica).
+        if (body.ClientId.HasValue)
+        {
+            var existente = await _repository.GetGrupoIdPorClientId(body.ClientId.Value);
+            if (existente.HasValue)
+            {
+                var g = await _repository.GetGrupoEntidad(existente.Value) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+                return new AtsGrupoCrearResponseDto { Id = g.Id, QrToken = g.QrToken.ToString(), QrExpiraEn = g.QrExpiraEn };
+            }
+
+            if (!body.CapturadoEn.HasValue)
+                throw new AbrilException("Falta la hora en que se armó el ATS sin conexión.", 400);
+            var capturado = DateTime.SpecifyKind(body.CapturadoEn.Value, DateTimeKind.Utc);
+            if (capturado > DateTime.UtcNow.AddMinutes(10))
+                throw new AbrilException("La hora del dispositivo es posterior a la actual — revisa la fecha y hora del celular.", 400);
+            if (capturado < DateTime.UtcNow.AddDays(-7))
+                throw new AbrilException("Este ATS se armó hace más de 7 días y ya no se puede subir. Debe hacerse de nuevo.", 409);
+
+            var creado = await CrearGrupo(body.WorkerId, body.Contenido);
+            await _repository.MarcarGrupoOffline(creado.Id, body.ClientId.Value, capturado);
+            var grupo = await _repository.GetGrupoEntidad(creado.Id) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+            return new AtsGrupoCrearResponseDto { Id = grupo.Id, QrToken = grupo.QrToken.ToString(), QrExpiraEn = grupo.QrExpiraEn };
+        }
+
         return await CrearGrupo(body.WorkerId, body.Contenido);
     }
 

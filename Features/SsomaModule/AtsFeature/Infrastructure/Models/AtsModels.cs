@@ -236,6 +236,14 @@ public class SsAtsRiesgoControl
 public class SsAts
 {
     public int Id { get; set; }
+    /// <summary>true = la firma se capturó sin conexión: su hora real es HoraDispositivo; HoraServidorFirma es la de la sincronización.</summary>
+    public bool OrigenOffline { get; set; }
+    /// <summary>Anulación (Estado = "Anulado"): nunca se borra, queda el motivo, quién y cuándo.</summary>
+    public string? AnuladoMotivo { get; set; }
+    public int? AnuladoPorWorkerId { get; set; }
+    public DateTime? AnuladoEn { get; set; }
+    /// <summary>Código correlativo global (ATS-000001) — lo asigna el repositorio al crear, desde ss_ats_codigo_seq.</summary>
+    public string? Codigo { get; set; }
     public int WorkerId { get; set; }
     public int ProyectoId { get; set; }
     /// <summary>Puesto del trabajador al momento de llenar el ATS — de acá salen los pasos que le tocan (SsAtsPasoPuesto). Snapshot: si luego cambia de puesto, este ATS no cambia.</summary>
@@ -352,9 +360,62 @@ public class SsAts
 /// así el resto del sistema (PDF, permisos, listado, PETAR individual) no se entera de la
 /// diferencia, sigue viendo un SsAts normal por persona.
 /// </summary>
+/// <summary>Integrante ESPERADO de una cuadrilla (lo marca el autor/admin en el panel) — permite ver quién falta firmar.</summary>
+/// <summary>Observación de Capataz/Residente/Producción/SSOMA sobre un ATS (AtsId) o un ATS grupal (AtsGrupoId) —
+/// no modifica el documento; mientras esté Abierta bloquea las firmas de validación.</summary>
+public class SsAtsObservacion
+{
+    public int Id { get; set; }
+    public int? AtsId { get; set; }
+    public int? AtsGrupoId { get; set; }
+    public string Rol { get; set; } = string.Empty;
+    public int AutorWorkerId { get; set; }
+    public string AutorNombre { get; set; } = string.Empty;
+    public string Texto { get; set; } = string.Empty;
+    public string Estado { get; set; } = "Abierta";
+    public string? Respuesta { get; set; }
+    public int? ResueltaPorWorkerId { get; set; }
+    public string? ResueltaPorNombre { get; set; }
+    public DateTime? ResueltaEn { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class SsAtsGrupoIntegrante
+{
+    public int Id { get; set; }
+    public int AtsGrupoId { get; set; }
+    public int WorkerId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>Registro de eventos del grupo (Cerrado / Reabierto) con quién lo hizo.</summary>
+public class SsAtsGrupoEvento
+{
+    public int Id { get; set; }
+    public int AtsGrupoId { get; set; }
+    public string Evento { get; set; } = string.Empty;
+    public int? WorkerId { get; set; }
+    public string? Detalle { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
 public class SsAtsGrupo
 {
     public int Id { get; set; }
+    /// <summary>Armado sin conexión en el teléfono (PWA) y sincronizado después. CapturadoEn = hora del dispositivo al
+    /// crearlo; ClientId = identificador generado en el teléfono (hace idempotente el reintento de envío).</summary>
+    public bool OrigenOffline { get; set; }
+    public DateTime? CapturadoEn { get; set; }
+    public Guid? ClientId { get; set; }
+    /// <summary>Revisión del ATS grupal: 1 = original; una corrección crea un grupo nuevo con Revision+1 enlazado
+    /// al anterior (que queda "Reemplazado").</summary>
+    public int Revision { get; set; } = 1;
+    public int? GrupoAnteriorId { get; set; }
+    public string? AnuladoMotivo { get; set; }
+    public int? AnuladoPorWorkerId { get; set; }
+    public DateTime? AnuladoEn { get; set; }
+    /// <summary>Mismo formato que el ATS individual con tipo propio: "{ABREV}-ATSG-0001" (correlativo por proyecto).</summary>
+    public string? Codigo { get; set; }
     public int CreadoPorWorkerId { get; set; }
     public int ProyectoId { get; set; }
     public int? PlantillaId { get; set; }

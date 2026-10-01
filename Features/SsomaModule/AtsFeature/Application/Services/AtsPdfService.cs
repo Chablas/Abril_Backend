@@ -39,7 +39,7 @@ public static class AtsPdfService
                 page.Margin(30);
                 page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(9));
 
-                page.Header().Element(c => ComposeHeader(c, logoBytes, ats.PlantillaNombre));
+                page.Header().Element(c => ComposeHeader(c, logoBytes, ats.PlantillaNombre, ats.Codigo));
 
                 page.Content().Column(col =>
                 {
@@ -61,14 +61,60 @@ public static class AtsPdfService
                         });
                     });
 
-                    if (ats.Pasos.Count > 0)
+                    ComposeDetalle(col, ats);
+
+                    col.Item().PaddingTop(10).Text("Evidencia de trazabilidad").Bold();
+                    col.Item().Row(row =>
+                    {
+                        row.RelativeItem(2).Column(c =>
+                        {
+                            c.Item().Text($"Firmado digitalmente: {FechaHoraPeru(ats.HoraServidorFirma)}").FontSize(8);
+                            if (ats.OrigenOffline && ats.HoraDispositivo.HasValue)
+                                c.Item().Text($"Capturado sin conexión el {FechaHoraPeru(ats.HoraDispositivo)} (hora del dispositivo)").FontSize(8).Bold();
+                            c.Item().Text($"Geolocalización: {FormatGeo(ats.Lat, ats.Lng, ats.PrecisionMetros)}").FontSize(8);
+                            c.Item().Text($"Estado: {ats.Estado}").FontSize(8);
+                            if (!string.IsNullOrWhiteSpace(ats.PdfHash))
+                                c.Item().Text($"Hash del documento: {ats.PdfHash[..Math.Min(16, ats.PdfHash.Length)]}…").FontSize(7).FontColor(Colors.Grey.Darken1);
+                        });
+
+                        if (selfieBytes is { Length: > 0 })
+                            row.ConstantItem(90).Height(90).Image(selfieBytes).FitArea();
+
+                        if (qrBytes is { Length: > 0 })
+                            row.ConstantItem(70).Height(70).Image(qrBytes).FitArea();
+                    });
+
+                    col.Item().PaddingTop(14).Text("Firmas").Bold();
+                    col.Item().Row(row =>
+                    {
+                        row.RelativeItem().Element(c => FirmaBloque(c, "Ejecutante", ats.WorkerNombre, ats.PuestoNombre, ats.HoraServidorFirma, firmaBytes));
+                        if (ats.RequiereCapataz)
+                            row.RelativeItem().Element(c => FirmaBloque(c, "Capataz / Maestro de Obra", ats.CapatazNombre, ats.CapatazCargo, ats.CapatazHoraServidor, firmaCapatazBytes));
+                        row.RelativeItem().Element(c => FirmaBloque(c, "Autoriza (Residente / Ing. Producción)", ats.AutorizaNombre, ats.AutorizaCargo, ats.AutorizaHoraServidor, firmaAutorizaBytes));
+                        row.RelativeItem().Element(c => FirmaBloque(c, "Visto Bueno SSOMA", ats.SsomaNombre, ats.SsomaCargo, ats.SsomaHoraServidor, firmaSsomaBytes));
+                    });
+                });
+
+                page.Footer().AlignCenter().Text(t =>
+                {
+                    t.Span("Verificar autenticidad: ").FontSize(7);
+                    t.Span(verificacionUrl).FontSize(7).FontColor(Colors.Blue.Darken2);
+                });
+            });
+        }).GeneratePdf();
+    }
+
+    /// <summary>Pasos, EPP, herramientas e IPERC — idéntico en el ATS individual y en el grupal.</summary>
+    private static void ComposeDetalle(ColumnDescriptor col, AtsResponseDto ats)
+    {
+        if (ats.Pasos.Any(p => p.Aplica))
                     {
                         col.Item().PaddingTop(6).Text("Actividades y pasos de la tarea").Bold();
-                        foreach (var grupo in ats.Pasos.GroupBy(p => p.CategoriaNombre))
+                        foreach (var grupo in ats.Pasos.Where(p => p.Aplica).GroupBy(p => p.CategoriaNombre))
                         {
                             col.Item().Text(grupo.Key).SemiBold().FontSize(8.5f).FontColor(Colors.Grey.Darken2);
                             foreach (var p in grupo)
-                                col.Item().Text($"{(p.Aplica ? "☑" : "☐")} {p.Texto}").FontSize(8.5f);
+                                col.Item().Text($"☑ {p.Texto}").FontSize(8.5f);
                         }
                     }
 
@@ -107,41 +153,122 @@ public static class AtsPdfService
                             table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4).AlignCenter().Text(NivelLabel(d.RiesgoResidual)).FontSize(8).FontColor(NivelColor(d.RiesgoResidual)).Bold();
                         }
                     });
+    }
 
-                    col.Item().PaddingTop(10).Text("Evidencia de trazabilidad").Bold();
-                    col.Item().Row(row =>
+    public record GrupalFila(string Nombre, string? Puesto, DateTime? Hora, byte[]? Selfie, byte[]? Firma, decimal? Lat, decimal? Lng, bool Offline = false, DateTime? HoraDispositivo = null);
+    public record FirmaCadena(string? Nombre, string? Cargo, DateTime? Hora, byte[]? Firma);
+
+    /// <summary>ATS GRUPAL: un solo documento por cuadrilla con la firma (y selfie/hora/geo) de CADA trabajador
+    /// y una única firma de Capataz/Maestro (solo cuadrillas de obreros), Autoriza (Residente/Producción) y
+    /// Visto Bueno SSOMA. Mismo formato SSO-FO-018 que el ATS individual.</summary>
+    public static byte[] GenerarGrupal(
+        AtsResponseDto contenido, string numeroDocumento, List<GrupalFila> filas, bool requiereCapataz,
+        FirmaCadena capataz, FirmaCadena autoriza, FirmaCadena ssoma, byte[]? logoBytes)
+    {
+        return Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(30);
+                page.DefaultTextStyle(t => t.FontFamily("Arial").FontSize(9));
+
+                page.Header().Element(c => ComposeHeader(c, logoBytes, contenido.PlantillaNombre, numeroDocumento));
+
+                page.Content().Column(col =>
+                {
+                    col.Spacing(8);
+
+                    col.Item().PaddingTop(10).Column(c =>
                     {
-                        row.RelativeItem(2).Column(c =>
-                        {
-                            c.Item().Text($"Firmado digitalmente: {FechaHoraPeru(ats.HoraServidorFirma)}").FontSize(8);
-                            c.Item().Text($"Geolocalización: {FormatGeo(ats.Lat, ats.Lng, ats.PrecisionMetros)}").FontSize(8);
-                            c.Item().Text($"Estado: {ats.Estado}").FontSize(8);
-                            if (!string.IsNullOrWhiteSpace(ats.PdfHash))
-                                c.Item().Text($"Hash del documento: {ats.PdfHash[..Math.Min(16, ats.PdfHash.Length)]}…").FontSize(7).FontColor(Colors.Grey.Darken1);
-                        });
-
-                        if (selfieBytes is { Length: > 0 })
-                            row.ConstantItem(90).Height(90).Image(selfieBytes).FitArea();
-
-                        if (qrBytes is { Length: > 0 })
-                            row.ConstantItem(70).Height(70).Image(qrBytes).FitArea();
+                        c.Item().Text($"Proyecto: {contenido.ProyectoNombre}").Bold();
+                        c.Item().Text($"Actividad: {contenido.Actividad}");
+                        if (!string.IsNullOrWhiteSpace(contenido.TorreNombre))
+                            c.Item().Text($"Torre: {contenido.TorreNombre} — Piso(s): {contenido.Pisos}");
+                        if (!string.IsNullOrWhiteSpace(contenido.Lugar))
+                            c.Item().Text($"Lugar: {contenido.Lugar}");
+                        c.Item().Text($"Fecha: {contenido.Fecha:dd/MM/yyyy}");
+                        c.Item().Text($"Trabajadores de la cuadrilla: {filas.Count}");
                     });
 
-                    col.Item().PaddingTop(14).Text("Firmas").Bold();
-                    col.Item().Row(row =>
+                    ComposeDetalle(col, contenido);
+
+                    col.Item().PaddingTop(10).Text($"Trabajadores que firman ({filas.Count(f => f.Firma is { Length: > 0 })} de {filas.Count})").Bold();
+                    col.Item().Table(table =>
                     {
-                        row.RelativeItem().Element(c => FirmaBloque(c, "Ejecutante", ats.WorkerNombre, ats.PuestoNombre, ats.HoraServidorFirma, firmaBytes));
-                        if (ats.RequiereCapataz)
-                            row.RelativeItem().Element(c => FirmaBloque(c, "Capataz / Maestro de Obra", ats.CapatazNombre, ats.CapatazCargo, ats.CapatazHoraServidor, firmaCapatazBytes));
-                        row.RelativeItem().Element(c => FirmaBloque(c, "Autoriza (Residente / Ing. Producción)", ats.AutorizaNombre, ats.AutorizaCargo, ats.AutorizaHoraServidor, firmaAutorizaBytes));
-                        row.RelativeItem().Element(c => FirmaBloque(c, "Visto Bueno SSOMA", ats.SsomaNombre, ats.SsomaCargo, ats.SsomaHoraServidor, firmaSsomaBytes));
+                        table.ColumnsDefinition(c =>
+                        {
+                            c.ConstantColumn(22);
+                            c.RelativeColumn(3);
+                            c.RelativeColumn(2);
+                            c.ConstantColumn(40);
+                            c.RelativeColumn(2);
+                        });
+
+                        table.Header(h =>
+                        {
+                            h.Cell().Background(Colors.Grey.Lighten3).Padding(4).Text("N°").Bold().FontSize(8);
+                            h.Cell().Background(Colors.Grey.Lighten3).Padding(4).Text("Trabajador").Bold().FontSize(8);
+                            h.Cell().Background(Colors.Grey.Lighten3).Padding(4).Text("Firmado (hora / GPS)").Bold().FontSize(8);
+                            h.Cell().Background(Colors.Grey.Lighten3).Padding(4).Text("Selfie").Bold().FontSize(8);
+                            h.Cell().Background(Colors.Grey.Lighten3).Padding(4).Text("Firma").Bold().FontSize(8);
+                        });
+
+                        var n = 0;
+                        foreach (var f in filas)
+                        {
+                            n++;
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(3).AlignMiddle().Text(n.ToString()).FontSize(8);
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(3).AlignMiddle().Column(c =>
+                            {
+                                c.Item().Text(f.Nombre).FontSize(8).Bold();
+                                if (!string.IsNullOrWhiteSpace(f.Puesto))
+                                    c.Item().Text(f.Puesto).FontSize(7).FontColor(Colors.Grey.Darken1);
+                            });
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(3).AlignMiddle().Column(c =>
+                            {
+                                if (f.Offline && f.HoraDispositivo.HasValue)
+                                {
+                                    c.Item().Text($"Capturado sin conexión: {FechaHoraPeru(f.HoraDispositivo)}").FontSize(7.5f).Bold();
+                                    c.Item().Text($"Sincronizado: {FechaHoraPeru(f.Hora)}").FontSize(6.5f).FontColor(Colors.Grey.Darken1);
+                                }
+                                else
+                                    c.Item().Text(FechaHoraPeru(f.Hora)).FontSize(7.5f);
+                                var validaciones = new[] { capataz.Hora, autoriza.Hora, ssoma.Hora }.Where(h => h.HasValue).Select(h => h!.Value).ToList();
+                                if (f.Hora.HasValue && validaciones.Any(v => f.Hora.Value > v))
+                                    c.Item().Text("Firmó después de una validación").FontSize(6.5f).Bold().FontColor(Colors.Red.Darken2);
+                                c.Item().Text(FormatGeo(f.Lat, f.Lng, null)).FontSize(6.5f).FontColor(Colors.Grey.Darken1);
+                            });
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Height(36).Element(inner =>
+                            {
+                                if (f.Selfie is { Length: > 0 }) inner.Image(f.Selfie).FitArea();
+                            });
+                            table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Height(36).Element(inner =>
+                            {
+                                if (f.Firma is { Length: > 0 })
+                                    inner.Image(f.Firma).FitArea();
+                                else
+                                    inner.AlignMiddle().AlignCenter().Text("PENDIENTE").FontSize(8).Bold().FontColor(Colors.Red.Darken2);
+                            });
+                        }
+                    });
+
+                    col.Item().PaddingTop(14).Text("Firmas de validación (una por cuadrilla)").Bold();
+                    col.Item().ShowEntire().Row(row =>
+                    {
+                        if (requiereCapataz)
+                            row.RelativeItem().Element(c => FirmaBloque(c, "Capataz / Maestro de Obra", capataz.Nombre, capataz.Cargo, capataz.Hora, capataz.Firma));
+                        row.RelativeItem().Element(c => FirmaBloque(c, "Autoriza (Residente / Ing. Producción)", autoriza.Nombre, autoriza.Cargo, autoriza.Hora, autoriza.Firma));
+                        row.RelativeItem().Element(c => FirmaBloque(c, "Visto Bueno SSOMA", ssoma.Nombre, ssoma.Cargo, ssoma.Hora, ssoma.Firma));
                     });
                 });
 
                 page.Footer().AlignCenter().Text(t =>
                 {
-                    t.Span("Verificar autenticidad: ").FontSize(7);
-                    t.Span(verificacionUrl).FontSize(7).FontColor(Colors.Blue.Darken2);
+                    t.Span("ATS grupal — cada trabajador firmó con su selfie y geolocalización · Página ").FontSize(7);
+                    t.CurrentPageNumber().FontSize(7);
+                    t.Span(" de ").FontSize(7);
+                    t.TotalPages().FontSize(7);
                 });
             });
         }).GeneratePdf();
@@ -172,7 +299,7 @@ public static class AtsPdfService
 
     /// <summary>Logo | título centrado | Código/Versión/Fecha + Elab./Rev./Apro. — mismo patrón
     /// que ConvalidacionPdfService/RacPdfService, el estándar corporativo de formatos SSOMA.</summary>
-    private static void ComposeHeader(IContainer container, byte[]? logoBytes, string? plantillaNombre)
+    private static void ComposeHeader(IContainer container, byte[]? logoBytes, string? plantillaNombre, string? numeroDocumento)
     {
         container.Border(0.5f).BorderColor(Colors.Grey.Lighten1).Row(row =>
         {
@@ -191,6 +318,8 @@ public static class AtsPdfService
                 tCol.Item().AlignCenter().Text(Titulo).Bold().FontSize(11).AlignCenter();
                 if (!string.IsNullOrWhiteSpace(plantillaNombre))
                     tCol.Item().AlignCenter().Text(plantillaNombre).FontSize(8).FontColor(Colors.Grey.Darken2);
+                if (!string.IsNullOrWhiteSpace(numeroDocumento))
+                    tCol.Item().AlignCenter().Text($"N.° {numeroDocumento}").Bold().FontSize(9);
             });
 
             row.ConstantItem(0.5f).Background(Colors.Grey.Lighten1);

@@ -79,6 +79,7 @@ public class AtsRiesgoDto
 public class AtsPetarResumenDto
 {
     public int Id { get; set; }
+    public string? Codigo { get; set; }
     public string? TipoNombre { get; set; }
     public string Estado { get; set; } = string.Empty;
     /// <summary>true si ya existe firma del ejecutante en este PETAR — sin ella no se puede
@@ -213,6 +214,9 @@ public class AtsGuardarRequestDto
     /// día (condición de campo distinta a la evaluada) — enlaza con el original vía AtsAnteriorId,
     /// nunca lo modifica (un ATS firmado es inmutable, Art. 76 del Reglamento de la Ley 29783).</summary>
     public int? AtsAnteriorId { get; set; }
+    /// <summary>Solo al corregir un ATS grupal desde el panel: el grupo se reemplaza por una revisión nueva
+    /// (nunca se acepta desde la página pública).</summary>
+    public int? GrupoAnteriorId { get; set; }
 }
 
 // ── Firmas adicionales (Autoriza / Visto Bueno SSOMA) ───────────────────────
@@ -259,9 +263,51 @@ public class AtsRiesgoDetalleResponseDto
     public string RiesgoResidual { get; set; } = string.Empty;
 }
 
+public class AtsObservacionDto
+{
+    public int Id { get; set; }
+    public string Rol { get; set; } = string.Empty;
+    public string AutorNombre { get; set; } = string.Empty;
+    public string Texto { get; set; } = string.Empty;
+    public string Estado { get; set; } = string.Empty;
+    public string? Respuesta { get; set; }
+    public string? ResueltaPorNombre { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ResueltaEn { get; set; }
+}
+
+public class AtsObservacionesDto
+{
+    public List<AtsObservacionDto> Observaciones { get; set; } = [];
+    public bool PuedeObservar { get; set; }
+    public bool PuedeResolver { get; set; }
+}
+
+public class AtsObservacionCrearRequestDto
+{
+    public string Texto { get; set; } = string.Empty;
+}
+
+public class AtsObservacionResolverRequestDto
+{
+    public string Respuesta { get; set; } = string.Empty;
+}
+
+public class AtsAnularRequestDto
+{
+    public string Motivo { get; set; } = string.Empty;
+}
+
 public class AtsResponseDto
 {
     public int Id { get; set; }
+    public string? AnuladoMotivo { get; set; }
+    public int ObservacionesAbiertas { get; set; }
+    public bool OrigenOffline { get; set; }
+    public DateTime? HoraDispositivo { get; set; }
+    /// <summary>Residente/Producción/SSOMA/admin pueden anular un ATS firmado (queda registrado, no se borra).</summary>
+    public bool PuedeAnular { get; set; }
+    public string? Codigo { get; set; }
     public int WorkerId { get; set; }
     public string? WorkerNombre { get; set; }
     public int ProyectoId { get; set; }
@@ -347,12 +393,59 @@ public class AtsFiltroDto
     public DateOnly? FechaDesde { get; set; }
     public DateOnly? FechaHasta { get; set; }
     public string? Estado { get; set; }
+    /// <summary>true = excluye los ATS que nacieron de una cuadrilla (AtsGrupoId != null): esos se ven
+    /// agrupados en la vista de ATS grupales, no repetidos uno por uno en el listado individual.</summary>
+    public bool SoloIndividuales { get; set; }
     public int Page { get; set; } = 1;
 }
 
 public class AtsListResponseDto
 {
     public List<AtsResponseDto> Data { get; set; } = [];
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalRecords { get; set; }
+    public int TotalPages { get; set; }
+}
+
+/// <summary>Lo mínimo que necesita el listado de ATS para poblar el filtro de proyecto — en vez de
+/// traer GetInit completo (catálogos de pasos/peligros/EPP/plantillas) solo para sacar proyectos.</summary>
+public class AtsListaInitDto
+{
+    public List<AtsProyectoDto> Proyectos { get; set; } = [];
+    public int? ProyectoActualId { get; set; }
+}
+
+/// <summary>Fila del listado de ATS grupales (cuadrillas) — una por grupo, no por trabajador.</summary>
+public class AtsGrupoListaItemDto
+{
+    public int Id { get; set; }
+    public int Revision { get; set; } = 1;
+    public int ObservacionesAbiertas { get; set; }
+    public string? Codigo { get; set; }
+    public string? ProyectoNombre { get; set; }
+    public string Actividad { get; set; } = string.Empty;
+    public string? TorreNombre { get; set; }
+    public string? Pisos { get; set; }
+    public string? Lugar { get; set; }
+    public DateOnly Fecha { get; set; }
+    public string Estado { get; set; } = string.Empty;
+    public string? CreadoPorNombre { get; set; }
+    public int TotalAdhesiones { get; set; }
+    public string? CapatazNombre { get; set; }
+    public bool CapatazFirmado { get; set; }
+    public bool CapatazVigente { get; set; }
+    public int CapatazNuevosSinValidar { get; set; }
+    /// <summary>false en cuadrillas de Staff/supervisores: ahí no firma el Capataz.</summary>
+    public bool RequiereCapataz { get; set; }
+    public int EjecutantesFirmados { get; set; }
+    public int AutorizaFirmados { get; set; }
+    public int SsomaFirmados { get; set; }
+}
+
+public class AtsGrupoListResponseDto
+{
+    public List<AtsGrupoListaItemDto> Data { get; set; } = [];
     public int Page { get; set; }
     public int PageSize { get; set; }
     public int TotalRecords { get; set; }
@@ -451,9 +544,62 @@ public class AtsGrupoCrearResponseDto
 }
 
 /// <summary>Panel del autor: cuántos ya firmaron, para saber si falta alguien de la cuadrilla.</summary>
+/// <summary>Datos de cada adhesión necesarios para armar el PDF grupal (evidencia + firmas de la cadena).</summary>
+public class AtsGrupoPdfAdhesionDto
+{
+    public bool OrigenOffline { get; set; }
+    public DateTime? HoraDispositivo { get; set; }
+    public int AtsId { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+    public string? Puesto { get; set; }
+    public DateTime? HoraServidorFirma { get; set; }
+    public string? SelfieUrl { get; set; }
+    public string? FirmaUrl { get; set; }
+    public decimal? Lat { get; set; }
+    public decimal? Lng { get; set; }
+    public string? AutorizaNombre { get; set; }
+    public string? AutorizaCargo { get; set; }
+    public string? AutorizaFirmaUrl { get; set; }
+    public DateTime? AutorizaHoraServidor { get; set; }
+    public string? SsomaNombre { get; set; }
+    public string? SsomaCargo { get; set; }
+    public string? SsomaFirmaUrl { get; set; }
+    public DateTime? SsomaHoraServidor { get; set; }
+}
+
+public class AtsGrupoIntegranteDto
+{
+    public int WorkerId { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+    /// <summary>true si ya tiene su ATS firmado en esta cuadrilla.</summary>
+    public bool Adherido { get; set; }
+}
+
+public class AtsGrupoIntegrantesRequestDto
+{
+    public List<int> WorkerIds { get; set; } = [];
+}
+
+public class AtsGrupoMiAtsRequestDto
+{
+    public int WorkerId { get; set; }
+    public string DniConfirmacion { get; set; } = string.Empty;
+}
+
+public class AtsGrupoAdheridoDto
+{
+    /// <summary>true si este ATS ya tiene la firma de ese nivel — falso = firmó después de la validación.</summary>
+    public bool AutorizaFirmado { get; set; }
+    public bool SsomaFirmado { get; set; }
+    public int AtsId { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+    public string Estado { get; set; } = string.Empty;
+}
+
 public class AtsGrupoEstadoDto
 {
     public int Id { get; set; }
+    public string? Codigo { get; set; }
     public string Actividad { get; set; } = string.Empty;
     public string? ProyectoNombre { get; set; }
     public string? TorreNombre { get; set; }
@@ -464,6 +610,9 @@ public class AtsGrupoEstadoDto
     public DateTime QrExpiraEn { get; set; }
     public int TotalAdhesiones { get; set; }
     public List<string> TrabajadoresAdheridos { get; set; } = [];
+    /// <summary>Mismo listado con el id del ATS individual de cada uno — el PDF de cada trabajador sigue
+    /// existiendo (evidencia propia: su selfie, geo y firma), se abre desde el panel de la cuadrilla.</summary>
+    public List<AtsGrupoAdheridoDto> Adheridos { get; set; } = [];
 
     public string? CapatazNombre { get; set; }
     public DateTime? CapatazHoraServidor { get; set; }
@@ -471,6 +620,35 @@ public class AtsGrupoEstadoDto
     /// adhesiones que las que había al firmar, queda false y CapatazNuevosSinValidar > 0.</summary>
     public bool CapatazVigente { get; set; }
     public int CapatazNuevosSinValidar { get; set; }
+
+    /// <summary>false en cuadrillas de Staff/supervisores (p. ej. "Supervisión"): ahí NO firma el Capataz,
+    /// la cadena es Autoriza (Residente/Producción) + SSOMA.</summary>
+    public bool RequiereCapataz { get; set; }
+    /// <summary>Cuántos de los ATS adheridos ya firmó cada nivel (sobre TotalAdhesiones).</summary>
+    public int EjecutantesFirmados { get; set; }
+    public int AutorizaFirmados { get; set; }
+    public int SsomaFirmados { get; set; }
+    /// <summary>Permisos del usuario que abre el panel (se calculan en el servicio).</summary>
+    public bool PuedeAutorizar { get; set; }
+    public bool PuedeVistoBuenoSsoma { get; set; }
+    /// <summary>Integrantes esperados (lista previa) con marca de quién ya firmó; vacío si no se definió.</summary>
+    public List<AtsGrupoIntegranteDto> Esperados { get; set; } = [];
+    public bool PuedeReabrir { get; set; }
+    public bool PuedeEditarIntegrantes { get; set; }
+    /// <summary>Quien abre el panel creó este grupo / ya firmó su propio ATS dentro de él — el autor también es
+    /// un ejecutante y debe firmar como los demás.</summary>
+    public bool SoyAutor { get; set; }
+    public bool YoYaFirme { get; set; }
+    public bool PuedeAnular { get; set; }
+    public string? AnuladoMotivo { get; set; }
+    public int ObservacionesAbiertas { get; set; }
+    public int Revision { get; set; } = 1;
+    public int? GrupoAnteriorId { get; set; }
+    /// <summary>Id del grupo que reemplazó a este (si fue corregido).</summary>
+    public int? ReemplazadoPorId { get; set; }
+    public bool PuedeCorregir { get; set; }
+    /// <summary>Último evento de cierre/reapertura (quién y cuándo), para trazabilidad en el panel.</summary>
+    public string? UltimoEvento { get; set; }
 }
 
 /// <summary>Página pública del Capataz (sin login, el token del grupo es el candado): ve cuántos y
@@ -524,6 +702,9 @@ public class AtsGrupoWorkerOpcionDto
 {
     public int WorkerId { get; set; }
     public string Nombre { get; set; } = string.Empty;
+    /// <summary>true si ya firmó su ATS en esta cuadrilla — la pantalla pública lo manda directo a los PETAR
+    /// en vez de pedirle firmar otra vez.</summary>
+    public bool YaFirmo { get; set; }
     /// <summary>Últimos 4 dígitos únicamente — nunca se manda el DNI completo a esta pantalla sin
     /// login, solo lo necesario para que el trabajador reconozca su propio nombre en la lista.</summary>
     public string? DniUltimos4 { get; set; }
@@ -570,6 +751,9 @@ public class AtsGrupoInitPublicoRequestDto
 /// ProyectoId que venga en Contenido se IGNORA, el servidor siempre usa el del token.</summary>
 public class AtsGrupoCrearPublicoRequestDto
 {
+    /// <summary>Solo para grupos armados sin conexión: id generado en el teléfono (idempotencia) y hora del dispositivo.</summary>
+    public Guid? ClientId { get; set; }
+    public DateTime? CapturadoEn { get; set; }
     public int WorkerId { get; set; }
     public string DniConfirmacion { get; set; } = string.Empty;
     public AtsGuardarRequestDto Contenido { get; set; } = new();

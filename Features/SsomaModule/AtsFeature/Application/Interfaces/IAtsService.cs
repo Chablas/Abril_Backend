@@ -16,6 +16,8 @@ public interface IAtsService
     Task<int> FirmarVistoGrupo(int grupoId, string rol, int callerUserId, bool esAdmin);
     Task<byte[]> GenerarPdfGrupo(int grupoId, int workerId, bool esAdmin);
     Task ReabrirGrupo(int grupoId, int workerId, bool esAdmin);
+    Task<int> UnirseAGrupoLogueado(Guid token, int callerUserId, AtsGrupoUnirseRequestDto body, string? ipOrigen, string? userAgent);
+    Task<int?> GetMiAtsLogueado(Guid token, int callerUserId);
     Task<AtsResponseDto> GetContenidoGrupo(int grupoId, int workerId, bool esAdmin);
     Task<AtsObservacionesDto> GetObservacionesAts(int atsId, int callerUserId, bool esAdmin);
     Task<AtsObservacionesDto> GetObservacionesGrupo(int grupoId, int callerUserId, bool esAdmin);

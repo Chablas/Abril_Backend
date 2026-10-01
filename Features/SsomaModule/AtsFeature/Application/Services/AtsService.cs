@@ -1177,7 +1177,25 @@ public class AtsService : IAtsService
     /// DNI corto es fricción mínima contra "elegir cualquier nombre de la lista"; la selfie+geo+
     /// firma es la misma prueba de presencia física que el ATS individual. Reusa Firmar() tal cual
     /// para no duplicar la lógica de consentimiento/hash/selfie-duplicada/aviso a responsables.</summary>
-    public async Task<int> UnirseAGrupo(Guid token, AtsGrupoUnirseRequestDto body, string? ipOrigen, string? userAgent)
+    public Task<int> UnirseAGrupo(Guid token, AtsGrupoUnirseRequestDto body, string? ipOrigen, string? userAgent)
+        => UnirseCore(token, body, ipOrigen, userAgent, validarDni: true);
+
+    /// <summary>Quien YA inició sesión firma como sí mismo: su identidad la da el usuario, no hace falta elegir nombre ni
+    /// confirmar el DNI (esos pasos existen solo para quien entra por el QR sin cuenta).</summary>
+    public async Task<int> UnirseAGrupoLogueado(Guid token, int callerUserId, AtsGrupoUnirseRequestDto body, string? ipOrigen, string? userAgent)
+    {
+        body.WorkerId = await _repository.ResolverWorkerIdAsync(callerUserId);
+        return await UnirseCore(token, body, ipOrigen, userAgent, validarDni: false);
+    }
+
+    public async Task<int?> GetMiAtsLogueado(Guid token, int callerUserId)
+    {
+        var grupo = await _repository.GetGrupoPorToken(token) ?? throw new AbrilException("Enlace inválido.", 404);
+        var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
+        return await _repository.GetAtsIdDeGrupo(grupo.Id, workerId, "Firmado");
+    }
+
+    private async Task<int> UnirseCore(Guid token, AtsGrupoUnirseRequestDto body, string? ipOrigen, string? userAgent, bool validarDni)
     {
         var grupo = await _repository.GetGrupoPorToken(token) ?? throw new AbrilException("Enlace inválido.", 404);
         if (grupo.Estado != "Activo")
@@ -1185,7 +1203,7 @@ public class AtsService : IAtsService
         if (grupo.QrExpiraEn < DateTime.UtcNow)
             throw new AbrilException("Este enlace venció — pide uno nuevo para el día de hoy.", 409);
 
-        if (!await _repository.DniCoincide(body.WorkerId, body.DniConfirmacion))
+        if (validarDni && !await _repository.DniCoincide(body.WorkerId, body.DniConfirmacion))
             throw new AbrilException("Los dígitos de DNI no coinciden con el trabajador seleccionado.", 400);
 
         var opciones = await _repository.GetWorkersParaAdhesion(grupo.ProyectoId);

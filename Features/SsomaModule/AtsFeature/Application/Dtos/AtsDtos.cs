@@ -420,6 +420,9 @@ public class AtsListaInitDto
 public class AtsGrupoListaItemDto
 {
     public int Id { get; set; }
+    /// <summary>Algún riesgo de la cuadrilla exige PETAR (catálogo de Riesgos) — mismo criterio que el ATS individual.</summary>
+    public bool RequierePetar { get; set; }
+    public int TotalPetares { get; set; }
     public int Revision { get; set; } = 1;
     public int ObservacionesAbiertas { get; set; }
     public string? Codigo { get; set; }
@@ -642,6 +645,7 @@ public class AtsGrupoEstadoDto
     public bool PuedeAnular { get; set; }
     public string? AnuladoMotivo { get; set; }
     public int ObservacionesAbiertas { get; set; }
+    public bool RequierePetar { get; set; }
     public int Revision { get; set; } = 1;
     public int? GrupoAnteriorId { get; set; }
     /// <summary>Id del grupo que reemplazó a este (si fue corregido).</summary>

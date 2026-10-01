@@ -755,6 +755,42 @@ namespace Abril_Backend.Features.SsomaModule.AtsFeature.Presentation
             catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.AnularGrupo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
         }
 
+        /// <summary>El worker del usuario logueado — para que la pantalla de adhesión lo preseleccione sin pedir nombre ni DNI.</summary>
+        [HttpGet("yo")]
+        public async Task<IActionResult> GetYo()
+        {
+            try
+            {
+                var workerId = await _service.ResolverWorkerId(CurrentUserId());
+                return Ok(new { workerId });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetYo"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        /// <summary>Adhesión de quien ya inició sesión: firma como sí mismo, sin elegir nombre ni confirmar DNI.</summary>
+        [HttpPost("grupo/{token:guid}/unirse-yo")]
+        public async Task<IActionResult> UnirseAGrupoLogueado(Guid token, [FromBody] AtsGrupoUnirseRequestDto body)
+        {
+            try
+            {
+                var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+                var userAgent = Request.Headers.UserAgent.ToString();
+                var id = await _service.UnirseAGrupoLogueado(token, CurrentUserId(), body, ip, userAgent);
+                return Ok(new { id, message = "ATS firmado correctamente." });
+            }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.UnirseAGrupoLogueado"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
+        [HttpPost("grupo/{token:guid}/mi-ats-yo")]
+        public async Task<IActionResult> GetMiAtsLogueado(Guid token)
+        {
+            try { return Ok(new { atsId = await _service.GetMiAtsLogueado(token, CurrentUserId()) }); }
+            catch (AbrilException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+            catch (Exception ex) { _logger.LogError(ex, "Error en AtsController.GetMiAtsLogueado"); return StatusCode(500, new { message = "Error del servidor. Por favor contactar al administrador del sistema." }); }
+        }
+
         [HttpPost("grupo/{id:int}/reabrir")]
         public async Task<IActionResult> ReabrirGrupo(int id)
         {

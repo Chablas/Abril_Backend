@@ -48,6 +48,12 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule
             services.AddScoped<IMilestoneScheduleHistoryService, MilestoneScheduleHistoryService>();
             services.AddScoped<ICronogramaPermisosRepository, CronogramaPermisosRepository>();
 
+            // MilestoneSchedule: correos del cronograma (pantalla de configuración y destinatarios
+            // de cada envío; el resolver lo usa también ReminderService).
+            services.AddScoped<ICronogramaCorreosRepository, CronogramaCorreosRepository>();
+            services.AddScoped<ICronogramaConfiguracionService, CronogramaConfiguracionService>();
+            services.AddScoped<ICronogramaCorreoDestinatariosResolver, CronogramaCorreoDestinatariosResolver>();
+
             // Projects (paged-with-residents)
             services.AddScoped<IProjectsRepo, ProjectsRepo>();
             services.AddScoped<IProjectsSvc, ProjectsSvc>();

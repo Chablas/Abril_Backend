@@ -19,19 +19,20 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             _factory = factory;
         }
 
-        public async Task<List<ScheduleChangeInfoDTO>> GetSchedulesWithChangesThisMonthAsync()
+        /// <summary>
+        /// Antes buscaba el mes en curso, pero el resumen sale el día 1: miraba el mes que empezaba y
+        /// casi nunca encontraba nada. Ahora el período lo decide quien llama (ReminderService pide el
+        /// mes que cerró). created_date_time se guarda en UTC.
+        /// </summary>
+        public async Task<List<ScheduleChangeInfoDTO>> GetSchedulesWithChangesAsync(DateTime desdeUtc, DateTime hastaUtc)
         {
-            var now = DateTime.UtcNow;
-            var startOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-            var startOfNextMonth = startOfMonth.AddMonths(1);
-
             var data = await (
                 from msh in _context.MilestoneScheduleHistory
                 join p in _context.Project on msh.ProjectId equals p.ProjectId
                 join u in _context.User on msh.CreatedUserId equals u.UserId
                 join person in _context.Person on u.UserId equals person.UserId
-                where msh.CreatedDateTime >= startOfMonth
-                    && msh.CreatedDateTime < startOfNextMonth
+                where msh.CreatedDateTime >= desdeUtc
+                    && msh.CreatedDateTime < hastaUtc
                     && msh.Active && msh.State
                 select new
                 {

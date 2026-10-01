@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using System.Net;
 using System.Security.Claims;
 using System.Text;
 using Abril_Backend.Application.Exceptions;
@@ -19,15 +20,18 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
     {
         private readonly IMilestoneScheduleHistoryService _service;
         private readonly IEmailService _emailService;
+        private readonly ICronogramaCorreoDestinatariosResolver _destinatarios;
         private readonly ILogger<MilestoneScheduleHistoryController> _logger;
 
         public MilestoneScheduleHistoryController(
             IMilestoneScheduleHistoryService service,
             IEmailService emailService,
+            ICronogramaCorreoDestinatariosResolver destinatarios,
             ILogger<MilestoneScheduleHistoryController> logger)
         {
             _service = service;
             _emailService = emailService;
+            _destinatarios = destinatarios;
             _logger = logger;
         }
 
@@ -61,12 +65,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
 
                 if (result.Changes.Any())
                 {
+                    // A quién le llega sale de Cronograma de Hitos → Configuración. Se lee antes de
+                    // responder (es una consulta corta) para no usar nada del request después.
+                    var envio = (await _destinatarios.ObtenerAsync(CronogramaHitosCorreos.VersionConCambios)).Armar();
+
                     // Fire-and-forget: la notificación de cambios no debe bloquear la respuesta al
                     // usuario. Antes se hacía `await` acá mismo — si el proveedor de correo (SMTP/
                     // SendGrid/PowerAutomate) no respondía, la petición entera (y "Guardar cronograma"
                     // en el frontend) se quedaba colgada indefinidamente.
-                    var body = BuildEmailBody(result);
-                    _ = EnviarNotificacionCambiosAsync(body);
+                    if (envio.Enviar)
+                        _ = EnviarNotificacionCambiosAsync(envio, BuildEmailBody(result));
                 }
 
                 return Ok(new { message = "Cronograma creado exitosamente" });
@@ -104,15 +112,17 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             }
         }
 
-        private async Task EnviarNotificacionCambiosAsync(string body)
+        private async Task EnviarNotificacionCambiosAsync(CronogramaCorreoEnvio envio, string body)
         {
             try
             {
                 await _emailService.SendAsync(
-                    to: new List<string> { "calvarez@abril.pe", "alvarezvillegaschristian@outlook.com" },
+                    to: envio.Para,
                     subject: "Cambios en el cronograma",
                     body: body,
-                    isHtml: false);
+                    isHtml: true,
+                    cc: envio.Cc,
+                    bcc: envio.Cco);
             }
             catch (Exception ex)
             {
@@ -120,15 +130,16 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             }
         }
 
+        /// <summary>El cuerpo ya es HTML (lleva &lt;br&gt;): se manda como tal y con los nombres escapados.</summary>
         private string BuildEmailBody(ScheduleChangeResult result)
         {
             var sb = new StringBuilder();
-            sb.AppendLine($"Proyecto: {result.ProjectName}<br><br>");
+            sb.AppendLine($"Proyecto: {WebUtility.HtmlEncode(result.ProjectName)}<br><br>");
             sb.AppendLine("Se detectaron los siguientes cambios:<br><br>");
 
             foreach (var change in result.Changes)
             {
-                sb.Append($"Hito: {change.MilestoneDescription}: {change.ChangeType}");
+                sb.Append($"Hito: {WebUtility.HtmlEncode(change.MilestoneDescription)}: {change.ChangeType}");
 
                 if (change.ChangeType == "Actualizado")
                 {

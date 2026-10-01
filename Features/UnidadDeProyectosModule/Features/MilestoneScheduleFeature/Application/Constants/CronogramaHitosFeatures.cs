@@ -20,5 +20,9 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         /// a una versión guardada, culminar, marcar críticos, foto y característica. No sube
         /// versiones nuevas: eso es solo del residente del proyecto.</summary>
         public const string Administrar = "mejora-continua.milestone-schedule.administrar";
+
+        /// <summary>Configuración: prender y apagar los correos y recordatorios del cronograma y
+        /// sus destinatarios (botón «Configuración» de la pantalla).</summary>
+        public const string Configuracion = "mejora-continua.milestone-schedule.configuracion";
     }
 }

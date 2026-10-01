@@ -6,7 +6,8 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
     public interface IMilestoneScheduleRepository
     {
         Task<List<MilestoneScheduleDTO>> GetAllByMilestoneScheduleHistoryIdFactory(int milestoneScheduleHistoryId);
-        Task<List<ScheduleChangeInfoDTO>> GetSchedulesWithChangesThisMonthAsync();
+        /// <summary>Las versiones subidas entre <paramref name="desdeUtc"/> (incluido) y <paramref name="hastaUtc"/>, por proyecto y usuario.</summary>
+        Task<List<ScheduleChangeInfoDTO>> GetSchedulesWithChangesAsync(DateTime desdeUtc, DateTime hastaUtc);
         Task<int?> GetProjectIdByMilestoneScheduleId(int milestoneScheduleId);
         Task CulminarAsync(int milestoneScheduleId, DateOnly? fechaRealFin, int userId);
         Task MarcarCriticoAsync(int milestoneScheduleId, bool esHitoCritico, int userId);

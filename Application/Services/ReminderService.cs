@@ -1,4 +1,6 @@
 using Abril_Backend.Infrastructure.Interfaces;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Constants;
+using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Application.Interfaces;
 using Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneScheduleFeature.Infrastructure.Interfaces;
 using Abril_Backend.Application.Interfaces;
 using Abril_Backend.Application.DTOs;
@@ -30,21 +32,9 @@ namespace Abril_Backend.Application.Services
             //"alvarezvillegaschristian@outlook.com",
             //"calvarez@abril.pe"
         };
-        private readonly List<string> _residentsEmails = new List<string>
-        {
-            "alvarezvillegaschristian@outlook.com",
-            "calvarez@abril.pe"/*,
-            "arquitecturacomercialnm@abril.pe",
-            "comercialnm@abril.pe",
-            "sistemas@abril.pe",
-            "Marketingnm@abril.pe",
-            "jefesgerenciadeproyectos@abril.pe",
-            "maximo_op@abril.pe",
-            "camelia_op@abril.pe",
-            "kauriop@abril.pe",
-            "cedro33_op@abril.pe",
-            "granmanzano_op@abril.pe"*/
-        };
+        // Los dos recordatorios del Cronograma de Hitos ya no tienen la lista escrita acá: sale de
+        // Cronograma de Hitos → Configuración (milestone_schedule_correo).
+        private readonly ICronogramaCorreoDestinatariosResolver _cronogramaCorreos;
 
         // ── Aviso mensual de publicación de lecciones (1er día del mes) ─────────
         private readonly ISsomaReminderService _ssomaReminderService;
@@ -70,12 +60,14 @@ namespace Abril_Backend.Application.Services
             IEmailGroupResolver emailGroupResolver,
             IConfiguration configuration,
             ISsomaReminderService ssomaReminderService,
-            IEmailSenderResolver emailSenderResolver
+            IEmailSenderResolver emailSenderResolver,
+            ICronogramaCorreoDestinatariosResolver cronogramaCorreos
         )
         {
             _emailService = emailService;
             _milestoneScheduleRepository = milestoneScheduleRepository;
             _milestoneScheduleHistoryRepository = milestoneScheduleHistoryRepository;
+            _cronogramaCorreos = cronogramaCorreos;
             _lessonReminderRepository = lessonReminderRepository;
             _emailGroupResolver = emailGroupResolver;
             _frontendUrl = configuration["App:FrontendUrl"]?.TrimEnd('/') ?? string.Empty;
@@ -741,11 +733,24 @@ namespace Abril_Backend.Application.Services
             Console.WriteLine($"📧 Aviso de revisión enviado a {jefes.Count} jefatura(s).");
         }
 
+        /// <summary>
+        /// Resumen del mes (sale el día 1): las versiones que se subieron el mes que acaba de cerrar.
+        /// Antes buscaba el mes que empezaba y casi nunca encontraba nada. A quién le llega sale de
+        /// Cronograma de Hitos → Configuración.
+        /// </summary>
         public async Task SendMilestoneScheduleMonthlyReminderAsync(DateTime executionDate)
         {
-            var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
+            var envio = (await _cronogramaCorreos.ObtenerAsync(CronogramaHitosCorreos.ResumenMensual)).Armar();
+            if (!envio.Enviar)
+                return;
 
-            var changes = await _milestoneScheduleRepository.GetSchedulesWithChangesThisMonthAsync();
+            // El mes que cerró, en hora de Perú (UTC-5, sin horario de verano): empieza a las 05:00 UTC.
+            var mesAnterior = new DateTime(executionDate.Year, executionDate.Month, 1).AddMonths(-1);
+            var desdeUtc = new DateTime(mesAnterior.Year, mesAnterior.Month, 1, 5, 0, 0, DateTimeKind.Utc);
+            var hastaUtc = desdeUtc.AddMonths(1);
+            var periodLabel = mesAnterior.ToString("MMMM yyyy", new CultureInfo("es-PE"));
+
+            var changes = await _milestoneScheduleRepository.GetSchedulesWithChangesAsync(desdeUtc, hastaUtc);
 
             if (!changes.Any())
                 return;
@@ -797,22 +802,36 @@ namespace Abril_Backend.Application.Services
             ";
 
             await SendEmailExpandingGroupsAsync(
-                to: _residentsEmails,
+                to: envio.Para,
                 subject: $"📊 Reporte mensual: cambios en cronogramas — {periodLabel}",
                 body: body,
                 isHtml: true,
-                bcc: new List<string> {"calvarez@abril.pe"}
+                cc: envio.Cc,
+                bcc: envio.Cco
             );
         }
 
+        /// <summary>
+        /// Recordatorio al residente que todavía no subió la versión del mes. Le llega a él (el
+        /// destinatario del sistema) y a la lista de Cronograma de Hitos → Configuración, que se lee
+        /// una sola vez para todos.
+        /// </summary>
         public async Task SendMilestoneScheduleHistoryMonthlyRemindersAsync(DateTime executionDate)
         {
             var pendingUserProjects = await _milestoneScheduleHistoryRepository.GetUsersWithoutScheduleHistoryThisMonth();
+            if (pendingUserProjects.Count == 0)
+                return;
+
+            var lista = await _cronogramaCorreos.ObtenerAsync(CronogramaHitosCorreos.CronogramaPendiente);
             var periodLabel = executionDate.ToString("MMMM yyyy", new CultureInfo("es-PE"));
             var platformUrl = $"{_frontendUrl}/auth/login";
 
             foreach (var item in pendingUserProjects)
             {
+                var envio = lista.Armar(new[] { item.Email });
+                if (!envio.Enviar)
+                    continue;
+
                 var projectsHtml = string.Join("",
                     item.Projects.Select(p => $"<li>{p.ProjectDescription}</li>")
                 );
@@ -848,15 +867,14 @@ namespace Abril_Backend.Application.Services
                 <p>Gracias por tu compromiso con la mejora continua.</p>
                 ";
 
-                var isRecipientCalvarez = string.Equals(item.Email, "calvarez@abril.pe", StringComparison.OrdinalIgnoreCase);
-
+                // Armar ya no repite a nadie: si el residente también está en la lista, le llega una vez.
                 await SendEmailExpandingGroupsAsync(
-                    to: new List<string> { item.Email, "jefesgerenciadeproyectos@abril.pe", "coriundo@abril.pe" },
+                    to: envio.Para,
                     subject: "🔔 Abril App Recordatorio: envío mensual de cronograma de hitos pendiente",
                     body: body,
                     isHtml: true,
-                    cc: new List<string> { "hmamani@abril.pe", "vcolonio@abril.pe" },
-                    bcc: isRecipientCalvarez ? null : new List<string> { "calvarez@abril.pe" }
+                    cc: envio.Cc,
+                    bcc: envio.Cco
                 );
             }
         }

@@ -302,8 +302,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
 
                     await _emailService.SendAsync(
                         to: envio.Para,
-                        subject: "El consolidado está listo para programación de pago"
-                                 + ReembolsoEmailTemplates.NombreEnAsunto(d.Codigo, d.NumeroReembolso),
+                        subject: CorreoSalidaAsuntos.TesoreriaPorPagar(d.Codigo, d.NumeroReembolso),
                         body: ReembolsoEmailTemplates.ConsolidadoListoParaPago(layout, d, url),
                         isHtml: true,
                         cc: envio.Copia.Count > 0 ? envio.Copia : null);
@@ -386,8 +385,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
 
                     await _emailService.SendAsync(
                         to: envio.Para,
-                        subject: "El consolidado fue pagado"
-                                 + ReembolsoEmailTemplates.NombreEnAsunto(d.Codigo, d.NumeroReembolso),
+                        subject: CorreoSalidaAsuntos.ReembolsoPagadoConsolidador(d.Codigo, d.NumeroReembolso),
                         body: ReembolsoEmailTemplates.ConsolidadoPagado(layout, d, url),
                         isHtml: true,
                         cc: envio.Copia.Count > 0 ? envio.Copia : null);
@@ -443,8 +441,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
                     await _emailService.SendAsync(
                         to: envio.Para,
                         subject: una
-                            ? $"Reembolso realizado - rendición {d.Rendiciones[0].Codigo}"
-                            : $"Reembolso realizado - {d.Rendiciones.Count} rendiciones",
+                            ? CorreoSalidaAsuntos.ReembolsoPagado(d.Rendiciones[0].Codigo)
+                            : CorreoSalidaAsuntos.ReembolsoPagadoVarias(d.Rendiciones.Count),
                         body: ReembolsoEmailTemplates.Pagado(layout, d, url),
                         isHtml: true,
                         cc: envio.Copia.Count > 0 ? envio.Copia : null);
@@ -500,7 +498,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Reembolsos.Application.Se
 
                     await _emailService.SendAsync(
                         to: envio.Para,
-                        subject: $"Reembolso observado por Tesorería{ReembolsoEmailTemplates.NombreEnAsunto(d.Codigo, d.NumeroReembolso)}",
+                        subject: CorreoSalidaAsuntos.ReembolsoObservadoTesoreria(d.Codigo, d.NumeroReembolso),
                         body: ReembolsoEmailTemplates.ConsolidadoObservadoPorTesoreria(layout, d, url),
                         isHtml: true,
                         cc: envio.Copia.Count > 0 ? envio.Copia : null);

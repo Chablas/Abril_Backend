@@ -23,10 +23,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Application
         public int Orden { get; set; }
 
         /// <summary>
-        /// El asunto con que sale (<c>CorreoSalidaAsuntos.Plantilla</c>), para buscarlo en Enviados.
-        /// Lo que cambia en cada envío va entre llaves. Null = ese correo todavía no lo tiene.
+        /// Los asuntos con que sale (<c>CorreoSalidaAsuntos.Plantillas</c>), para buscarlo en
+        /// Enviados. Lo que cambia en cada envío va entre llaves; más de uno cuando el asunto cambia
+        /// según el caso (el primero que firma o los siguientes, una rendición o varias).
         /// </summary>
-        public string? Asunto { get; set; }
+        public List<string> Asuntos { get; set; } = new();
 
         /// <summary>Interruptor maestro: false = este correo no se envía a nadie.</summary>
         public bool Active { get; set; } = true;

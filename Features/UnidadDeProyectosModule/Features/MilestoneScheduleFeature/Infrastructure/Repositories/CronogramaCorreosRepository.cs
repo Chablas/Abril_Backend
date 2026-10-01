@@ -459,7 +459,7 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
             Codigo = fila.Codigo,
             Nombre = fila.Nombre,
             Descripcion = fila.Descripcion,
-            Asunto = CronogramaHitosAsuntos.Plantilla(fila.Codigo),
+            Asuntos = CronogramaHitosAsuntos.Plantillas(fila.Codigo).ToList(),
             Active = fila.Active,
             PrincipalNombre = fila.PrincipalNombre,
             PrincipalActive = fila.PrincipalActive,

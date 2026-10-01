@@ -181,7 +181,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreosSalida.Infrastruct
 
             foreach (var ev in eventos)
             {
-                ev.Asunto = CorreoSalidaAsuntos.Plantilla(ev.Codigo);
+                ev.Asuntos = CorreoSalidaAsuntos.Plantillas(ev.Codigo).ToList();
                 ev.Destinatarios = reglas
                     .Where(r => r.EventoId == ev.Id)
                     .Select(r =>

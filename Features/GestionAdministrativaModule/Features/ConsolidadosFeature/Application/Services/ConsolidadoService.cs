@@ -621,15 +621,11 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
             var body = ReembolsoEmailTemplates.ConsolidadoPorRevisar(
                 SalidaEmailLayout.Desde(_configuration), info.Datos!, url);
 
-            var numero = string.IsNullOrWhiteSpace(info.Datos!.NumeroReembolso)
-                ? string.Empty
-                : $" N.° {info.Datos.NumeroReembolso}";
-
             // El asunto dice de qué se trata antes de abrirlo: al que firma en segundo lugar le
             // llega «Falta tu firma» y no otro «por revisar» igual al que ya vio.
-            var asunto = string.IsNullOrWhiteSpace(info.Datos.FirmoAntes)
-                ? $"Consolidado del S10{numero} por revisar"
-                : $"Falta tu firma - Consolidado del S10{numero}";
+            var asunto = string.IsNullOrWhiteSpace(info.Datos!.FirmoAntes)
+                ? CorreoSalidaAsuntos.ConsolidadoPorRevisar(info.Datos.NumeroReembolso)
+                : CorreoSalidaAsuntos.FaltaTuFirma(info.Datos.NumeroReembolso);
 
             await _emailService.SendAsync(
                 to: envio.Para,
@@ -755,7 +751,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
 
                 await _emailService.SendAsync(
                     to: envio.Para,
-                    subject: $"Corrección del S10 solicitada{CorreccionS10EmailTemplates.NombreEnAsunto(datos)}",
+                    subject: CorreoSalidaAsuntos.CorreccionS10Solicitada(datos.ConsolidadoCodigo, datos.NumeroReembolso),
                     body: body,
                     isHtml: true,
                     cc: envio.Copia.Count > 0 ? envio.Copia : null);
@@ -897,10 +893,9 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                         ? ReembolsoEmailTemplates.ConsolidadoAprobado(layout, d, url)
                         : ReembolsoEmailTemplates.ConsolidadoObservado(layout, d, url);
 
-                    var numero = string.IsNullOrWhiteSpace(d.NumeroReembolso) ? string.Empty : $" N.° {d.NumeroReembolso}";
                     var subject = aprobado
-                        ? $"Consolidado del S10{numero} APROBADO"
-                        : $"Consolidado del S10{numero} OBSERVADO";
+                        ? CorreoSalidaAsuntos.ConsolidadoAprobado(d.NumeroReembolso)
+                        : CorreoSalidaAsuntos.ConsolidadoObservado(d.NumeroReembolso);
 
                     await _emailService.SendAsync(
                         to: envio.Para,
@@ -959,17 +954,12 @@ namespace Abril_Backend.Features.GestionAdministrativa.Consolidados.Application.
                 if (subsanada)
                 {
                     d.ObservacionTesoreria = observacionTesoreria;
-                    asunto = "La observación fue subsanada y el consolidado volvió a Tesorería"
-                             + ReembolsoEmailTemplates.NombreEnAsunto(d.Codigo, d.NumeroReembolso);
+                    asunto = CorreoSalidaAsuntos.TesoreriaSubsanada(d.Codigo, d.NumeroReembolso);
                     cuerpo = ReembolsoEmailTemplates.ConsolidadoSubsanadoParaTesoreria(layout, d, url);
                 }
                 else
                 {
-                    // Los consolidados anteriores al código se nombran por su número de reembolso.
-                    var nombre = !string.IsNullOrWhiteSpace(d.Codigo) ? $" - {d.Codigo}"
-                               : !string.IsNullOrWhiteSpace(d.NumeroReembolso) ? $" - N.° {d.NumeroReembolso}"
-                               : string.Empty;
-                    asunto = $"Consolidado pendiente de revisión{nombre}";
+                    asunto = CorreoSalidaAsuntos.TesoreriaReembolso(d.Codigo, d.NumeroReembolso);
                     cuerpo = ReembolsoEmailTemplates.ConsolidadoParaTesoreria(layout, d, url);
                 }
 

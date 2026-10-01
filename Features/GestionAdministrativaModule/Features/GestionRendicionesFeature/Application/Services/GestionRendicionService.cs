@@ -311,7 +311,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
 
                     await _emailService.SendAsync(
                         to: envio.Para,
-                        subject: $"Rendición {d.Codigo} incluida en la planilla grupal {d.PlanillaGrupalCodigo}",
+                        subject: CorreoSalidaAsuntos.RendicionEnPlanillaGrupal(d.Codigo, d.PlanillaGrupalCodigo),
                         body: ReembolsoEmailTemplates.RendicionEnPlanillaGrupal(layout, d, url),
                         isHtml: true,
                         cc: envio.Copia.Count > 0 ? envio.Copia : null);
@@ -434,13 +434,10 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                     }
 
                     var url = SalidaEnlaces.Rendiciones(_configuration, d.RendicionId);
-                    var enQue = string.IsNullOrWhiteSpace(d.ConsolidadoCodigo)
-                        ? "un consolidado"
-                        : $"el consolidado {d.ConsolidadoCodigo}";
 
                     await _emailService.SendAsync(
                         to: envio.Para,
-                        subject: $"Rendición {d.Codigo} incluida en {enQue}",
+                        subject: CorreoSalidaAsuntos.RendicionConsolidada(d.Codigo, d.ConsolidadoCodigo),
                         body: ReembolsoEmailTemplates.RendicionConsolidada(layout, d, url),
                         isHtml: true,
                         cc: envio.Copia.Count > 0 ? envio.Copia : null);
@@ -608,8 +605,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                         : RendicionRevisionEmailTemplates.Observada(layout, datos, url);
 
                     var subject = aprobada
-                        ? $"Rendición {info.Codigo} APROBADA en primera revisión"
-                        : $"Rendición {info.Codigo} OBSERVADA en primera revisión";
+                        ? CorreoSalidaAsuntos.RendicionPrimeraAprobada(info.Codigo)
+                        : CorreoSalidaAsuntos.RendicionPrimeraObservada(info.Codigo);
 
                     await _emailService.SendAsync(
                         to: envio.Para,
@@ -680,8 +677,8 @@ namespace Abril_Backend.Features.GestionAdministrativa.GestionRendiciones.Applic
                         : SalidaEnlaces.GestionRendiciones(_configuration);
 
                     var subject = una
-                        ? $"Rendición disponible para consolidar - {rendiciones[0].Codigo} - {rendiciones[0].Trabajador}"
-                        : $"{rendiciones.Count} rendiciones disponibles para consolidar";
+                        ? CorreoSalidaAsuntos.DisponibleParaConsolidar(rendiciones[0].Codigo, rendiciones[0].Trabajador)
+                        : CorreoSalidaAsuntos.DisponiblesParaConsolidar(rendiciones.Count);
 
                     await _emailService.SendAsync(
                         to: envio.Para,

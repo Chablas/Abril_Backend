@@ -31,10 +31,10 @@ namespace Abril_Backend.Features.UnidadDeProyectosModule.Features.MilestoneSched
         public string Nombre { get; set; } = string.Empty;
         public string? Descripcion { get; set; }
         /// <summary>
-        /// El asunto con que sale (<c>CronogramaHitosAsuntos.Plantilla</c>), para buscarlo en
+        /// Los asuntos con que sale (<c>CronogramaHitosAsuntos.Plantillas</c>), para buscarlo en
         /// Enviados. Lo que cambia en cada envío va entre llaves.
         /// </summary>
-        public string? Asunto { get; set; }
+        public List<string> Asuntos { get; set; } = new();
         /// <summary>Interruptor del correo: false = no se envía a nadie.</summary>
         public bool Active { get; set; }
         /// <summary>El destinatario que pone el sistema en cada envío (el residente). Null = no tiene.</summary>

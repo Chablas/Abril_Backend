@@ -180,13 +180,6 @@ namespace Abril_Backend.Features.GestionAdministrativa.Shared.Email
                 bloques.ToArray());
         }
 
-        /// <summary>
-        /// Cómo se nombra el pedido en el asunto de los dos correos: " - CONS-…", o " - Consolidado
-        /// del S10 N.° …" en los anteriores al código. Lo usan los dos servicios que los envían.
-        /// </summary>
-        public static string NombreEnAsunto(CorreccionS10CorreoDatos d) =>
-            ReembolsoEmailTemplates.NombreEnAsunto(d.ConsolidadoCodigo, d.NumeroReembolso);
-
         // ── Bloques compartidos ───────────────────────────────────────────────
 
         /// <summary>

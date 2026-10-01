@@ -144,7 +144,7 @@ namespace Abril_Backend.Features.GestionAdministrativa.CorreccionesS10.Applicati
 
                     await _emailService.SendAsync(
                         to: envio.Para,
-                        subject: $"Corrección del S10 atendida{CorreccionS10EmailTemplates.NombreEnAsunto(datos)}",
+                        subject: CorreoSalidaAsuntos.CorreccionS10Atendida(datos.ConsolidadoCodigo, datos.NumeroReembolso),
                         body: body,
                         isHtml: true,
                         cc: envio.Copia.Count > 0 ? envio.Copia : null);

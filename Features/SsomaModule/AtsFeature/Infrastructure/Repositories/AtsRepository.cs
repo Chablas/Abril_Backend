@@ -51,7 +51,7 @@ public class AtsRepository : IAtsRepository
         return (worker?.PuestoId, vinculacionVigente?.ProyectoId);
     }
 
-    public async Task<List<AtsCategoriaPasoDto>> GetPasosParaPuesto(int? puestoId)
+    public async Task<List<AtsCategoriaPasoDto>> GetPasosParaPuesto(int? puestoId, bool esStaff)
     {
         using var ctx = _factory.CreateDbContext();
 
@@ -71,7 +71,7 @@ public class AtsRepository : IAtsRepository
                 Id = c.Id,
                 Nombre = c.Nombre,
                 Pasos = c.Pasos
-                    .Where(p => CategoriasUniversales.Contains(c.Nombre) || pasoIdsPermitidos.Contains(p.Id))
+                    .Where(p => (esStaff && CategoriasUniversales.Contains(c.Nombre)) || pasoIdsPermitidos.Contains(p.Id))
                     .OrderBy(p => p.Orden)
                     .Select(p => new AtsPasoDto { Id = p.Id, Texto = p.Texto, RequierePetar = p.RequierePetar })
                     .ToList(),
@@ -484,6 +484,11 @@ public class AtsRepository : IAtsRepository
         Estado = ats.Estado,
         AtsAnteriorId = ats.AtsAnteriorId,
         PdfHash = ats.PdfHash,
+        AtsGrupoId = ats.AtsGrupoId,
+        CapatazNombre = ats.CapatazNombre,
+        CapatazCargo = ats.CapatazCargo,
+        CapatazFirmaUrl = ats.CapatazFirmaUrl,
+        CapatazHoraServidor = ats.CapatazHoraServidor,
         AutorizaNombre = ats.AutorizaNombre,
         AutorizaCargo = ats.AutorizaCargo,
         AutorizaFirmaUrl = ats.AutorizaFirmaUrl,
@@ -594,6 +599,61 @@ public class AtsRepository : IAtsRepository
         return (permiso?.FirmaDigitalUrl, nombre, dni);
     }
 
+    private static bool EsNombreCapataz(string? puesto) =>
+        puesto != null && (puesto.Contains("Capataz", StringComparison.OrdinalIgnoreCase)
+            || puesto.Contains("Maestro de Obra", StringComparison.OrdinalIgnoreCase));
+
+    public async Task<bool> EsCapatazOMaestro(int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var puesto = await ctx.Worker.Where(w => w.Id == workerId).Select(w => w.PuestoCatalogo != null ? w.PuestoCatalogo.Nombre : null).FirstOrDefaultAsync();
+        return EsNombreCapataz(puesto);
+    }
+
+    public async Task<string?> GetEmailPersonalAutorizacion(int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.SsAtsAutorizacionPermiso.Where(a => a.WorkerId == workerId).Select(a => a.EmailPersonal).FirstOrDefaultAsync();
+    }
+
+    /// <summary>Registra el correo personal declarado (solo Capataz/Maestro de obra). Crea la fila de
+    /// permiso si todavía no existe — el correo se pide ANTES de imprimir la plantilla, que lo lleva
+    /// impreso en la declaración.</summary>
+    public async Task GuardarEmailPersonalAutorizacion(int workerId, string email)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var permiso = await ctx.SsAtsAutorizacionPermiso.FirstOrDefaultAsync(a => a.WorkerId == workerId);
+        if (permiso == null)
+        {
+            permiso = new SsAtsAutorizacionPermiso { WorkerId = workerId };
+            ctx.SsAtsAutorizacionPermiso.Add(permiso);
+        }
+        permiso.EmailPersonal = email;
+        permiso.EmailDeclaradoEn = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<bool> TieneUsuario(int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var userId = await ctx.Worker.Where(w => w.Id == workerId).Select(w => w.Person != null ? w.Person.UserId : null).FirstOrDefaultAsync();
+        return userId != null && await ctx.User.AnyAsync(u => u.UserId == userId && u.State);
+    }
+
+    public async Task<int?> GetRoleIdCapataz()
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.Role.Where(r => r.RoleDescription.ToUpper() == "CAPATAZ / MAESTRO DE OBRA").Select(r => (int?)r.RoleId).FirstOrDefaultAsync();
+    }
+
+    public async Task<(string Dni, string Nombres, string ApellidoPaterno, string ApellidoMaterno, int? Telefono)?> GetDatosPersonaParaCuenta(int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var p = await ctx.Worker.Where(w => w.Id == workerId).Select(w => w.Person).FirstOrDefaultAsync();
+        if (p == null || string.IsNullOrEmpty(p.DocumentIdentityCode)) return null;
+        return (p.DocumentIdentityCode, p.FirstNames ?? string.Empty, p.FirstLastName ?? string.Empty, p.SecondLastName ?? string.Empty, p.PhoneNumber);
+    }
+
     public async Task CapturarFirmaDigitalAutorizacion(int workerId, string firmaUrl, string firmaHash, int capturadoPorUserId)
     {
         using var ctx = _factory.CreateDbContext();
@@ -654,8 +714,13 @@ public class AtsRepository : IAtsRepository
 
         var workers = await ctx.Worker
             .Where(w => w.WorkersEstadoId == Abril_Backend.Shared.Constants.WorkersEstadoIds.Activo
-                && w.ObraOficinaStaffId != null
-                && Abril_Backend.Shared.Constants.ObraOficinaStaffIds.StaffUOficinaCentral.Contains(w.ObraOficinaStaffId.Value))
+                && ((w.ObraOficinaStaffId != null
+                        && Abril_Backend.Shared.Constants.ObraOficinaStaffIds.StaffUOficinaCentral.Contains(w.ObraOficinaStaffId.Value))
+                    // Capataz / Maestro de obra: no son Staff pero firman por toda la cuadrilla, así
+                    // que también pasan por esta autorización (con correo personal para su cuenta).
+                    || (w.PuestoCatalogo != null
+                        && (w.PuestoCatalogo.Nombre.ToLower().Contains("capataz")
+                            || w.PuestoCatalogo.Nombre.ToLower().Contains("maestro de obra")))))
             .OrderBy(w => w.Person != null ? w.Person.FullName : null)
             .Select(w => new
             {
@@ -663,8 +728,16 @@ public class AtsRepository : IAtsRepository
                 Nombre = w.Person != null ? w.Person.FullName : null,
                 Dni = w.Person != null ? w.Person.DocumentIdentityCode : null,
                 ObraOficinaStaffId = w.ObraOficinaStaffId,
+                PuestoNombre = w.PuestoCatalogo != null ? w.PuestoCatalogo.Nombre : null,
+                UserId = w.Person != null ? w.Person.UserId : null,
             })
             .ToListAsync();
+
+        var userIdsDeWorkers = workers.Where(x => x.UserId != null).Select(x => x.UserId!.Value).ToList();
+        var userIdsConCuenta = (await ctx.User
+            .Where(u => u.State && userIdsDeWorkers.Contains(u.UserId))
+            .Select(u => u.UserId)
+            .ToListAsync()).ToHashSet();
 
         var workerIds = workers.Select(w => w.Id).ToList();
 
@@ -698,6 +771,9 @@ public class AtsRepository : IAtsRepository
                 TieneAutorizacion = autorizacionMap.GetValueOrDefault(w.Id)?.ArchivoUrl != null,
                 SubidoEn = autorizacionMap.GetValueOrDefault(w.Id)?.SubidoEn,
                 ArchivoUrl = autorizacionMap.GetValueOrDefault(w.Id)?.ArchivoUrl,
+                EsCapatazOMaestro = EsNombreCapataz(w.PuestoNombre),
+                EmailPersonal = autorizacionMap.GetValueOrDefault(w.Id)?.EmailPersonal,
+                TieneUsuario = w.UserId != null && userIdsConCuenta.Contains(w.UserId.Value),
             };
         }).ToList();
     }
@@ -811,6 +887,41 @@ public class AtsRepository : IAtsRepository
             || nombre.Contains("Arquitecto de Producción", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Capataz/Maestro de obra vinculado actualmente a ese proyecto (por puesto, igual
+    /// patrón que EsProduccionDeProyecto — no hay campo dedicado en Project).</summary>
+    public async Task<bool> EsCapatazDeProyecto(int workerId, int proyectoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var vinculacionVigente = await ctx.Set<Abril_Backend.Infrastructure.Models.WorkerVinculacion>()
+            .Include(v => v.PuestoCatalogo)
+            .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+            .OrderByDescending(v => v.Id)
+            .FirstOrDefaultAsync();
+
+        if (vinculacionVigente?.ProyectoId != proyectoId || vinculacionVigente.PuestoCatalogo == null) return false;
+
+        var nombre = vinculacionVigente.PuestoCatalogo.Nombre;
+        return nombre.Contains("Capataz", StringComparison.OrdinalIgnoreCase)
+            || nombre.Contains("Maestro de Obra", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>true si el ATS de este ejecutante REQUIERE firma de Capataz: obrero de obra (no
+    /// Staff/Oficina Central) y que además no sea él mismo capataz/maestro de obra — el capataz
+    /// ejecutando su propio ATS ya cubre ese nivel con su firma de ejecutante (ver SsAts.CapatazWorkerId).</summary>
+    public async Task<bool> EsObreroDeObra(int workerId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var worker = await ctx.Worker.Include(w => w.PuestoCatalogo).FirstOrDefaultAsync(w => w.Id == workerId);
+        var puesto = worker?.PuestoCatalogo?.Nombre;
+        if (puesto != null
+            && (puesto.Contains("Capataz", StringComparison.OrdinalIgnoreCase)
+                || puesto.Contains("Maestro de Obra", StringComparison.OrdinalIgnoreCase)))
+            return false;
+        if (worker?.ObraOficinaStaffId == null) return true;
+        return !Abril_Backend.Shared.Constants.ObraOficinaStaffIds.StaffUOficinaCentral.Contains(worker.ObraOficinaStaffId.Value);
+    }
+
     public async Task<bool> EsPrevencionistaAbril(int workerId)
     {
         using var ctx = _factory.CreateDbContext();
@@ -858,7 +969,18 @@ public class AtsRepository : IAtsRepository
         if (ats.Estado != "Firmado")
             throw new AbrilException("El ejecutante debe firmar el ATS antes de que se agreguen las demás firmas.", 409);
 
-        if (rol == "Autoriza")
+        if (rol == "Capataz")
+        {
+            if (ats.CapatazFirmaUrl != null)
+                throw new AbrilException("Este ATS ya tiene la firma de Capataz/Maestro de obra.", 409);
+            ats.CapatazWorkerId = workerId;
+            ats.CapatazNombre = nombre;
+            ats.CapatazCargo = cargo;
+            ats.CapatazFirmaUrl = firmaUrl;
+            ats.CapatazFirmaHash = firmaHash;
+            ats.CapatazHoraServidor = horaServidor;
+        }
+        else if (rol == "Autoriza")
         {
             if (ats.AutorizaFirmaUrl != null)
                 throw new AbrilException("Este ATS ya tiene la firma de Autoriza (Residente/Ing. Producción).", 409);
@@ -973,6 +1095,11 @@ public class AtsRepository : IAtsRepository
         Estado = ats.Estado,
         AtsAnteriorId = ats.AtsAnteriorId,
         PdfHash = ats.PdfHash,
+        AtsGrupoId = ats.AtsGrupoId,
+        CapatazNombre = ats.CapatazNombre,
+        CapatazCargo = ats.CapatazCargo,
+        CapatazFirmaUrl = ats.CapatazFirmaUrl,
+        CapatazHoraServidor = ats.CapatazHoraServidor,
         AutorizaNombre = ats.AutorizaNombre,
         AutorizaCargo = ats.AutorizaCargo,
         AutorizaFirmaUrl = ats.AutorizaFirmaUrl,
@@ -1360,6 +1487,10 @@ public class AtsRepository : IAtsRepository
             QrExpiraEn = grupo.QrExpiraEn,
             TotalAdhesiones = adheridos.Count,
             TrabajadoresAdheridos = adheridos.Select(a => a.Worker?.Person?.FullName ?? "—").ToList(),
+            CapatazNombre = grupo.CapatazNombre,
+            CapatazHoraServidor = grupo.CapatazHoraServidor,
+            CapatazVigente = grupo.CapatazFirmaUrl != null && adheridos.Count <= (grupo.CapatazAdhesionesAlFirmar ?? 0),
+            CapatazNuevosSinValidar = grupo.CapatazFirmaUrl != null ? Math.Max(0, adheridos.Count - (grupo.CapatazAdhesionesAlFirmar ?? 0)) : 0,
         };
     }
 
@@ -1422,6 +1553,115 @@ public class AtsRepository : IAtsRepository
         var dni = worker?.Person?.DocumentIdentityCode;
         if (string.IsNullOrEmpty(dni) || dni.Length < ultimosDigitos.Length) return false;
         return dni[^ultimosDigitos.Length..] == ultimosDigitos.Trim();
+    }
+
+    /// <summary>QR fijo por proyecto para crear ATS Grupales sin login — idempotente: si el
+    /// proyecto ya tiene uno, lo devuelve en vez de generar otro (un solo QR por proyecto, se
+    /// imprime una vez).</summary>
+    public async Task<Guid> GetOrCrearTokenProyecto(int proyectoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var existente = await ctx.SsAtsProyectoQr.FirstOrDefaultAsync(q => q.ProyectoId == proyectoId);
+        if (existente != null) return existente.Token;
+
+        var nuevo = new SsAtsProyectoQr { ProyectoId = proyectoId };
+        ctx.SsAtsProyectoQr.Add(nuevo);
+        await ctx.SaveChangesAsync();
+        return nuevo.Token;
+    }
+
+    public async Task<int?> GetProyectoPorTokenCrear(Guid token)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return (await ctx.SsAtsProyectoQr.FirstOrDefaultAsync(q => q.Token == token))?.ProyectoId;
+    }
+
+    /// <summary>Capataces/Maestros de obra activos vinculados HOY al proyecto — los únicos que
+    /// la página pública del Capataz deja elegir como "yo soy".</summary>
+    public async Task<List<AtsGrupoWorkerOpcionDto>> GetCapatacesDeProyecto(int proyectoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+
+        var vinculaciones = await ctx.WorkerVinculacion
+            .Include(v => v.PuestoCatalogo)
+            .Where(v => v.ProyectoId == proyectoId && v.FechaFin == null)
+            .ToListAsync();
+
+        var workerIds = vinculaciones
+            .Where(v => v.PuestoCatalogo != null
+                && (v.PuestoCatalogo.Nombre.Contains("Capataz", StringComparison.OrdinalIgnoreCase)
+                    || v.PuestoCatalogo.Nombre.Contains("Maestro de Obra", StringComparison.OrdinalIgnoreCase)))
+            .Select(v => v.WorkerId)
+            .Distinct()
+            .ToList();
+
+        var workers = await ctx.Worker
+            .Where(w => workerIds.Contains(w.Id) && w.WorkersEstadoId == Abril_Backend.Shared.Constants.WorkersEstadoIds.Activo)
+            .Include(w => w.Person)
+            .ToListAsync();
+
+        return workers
+            .Select(w => new AtsGrupoWorkerOpcionDto
+            {
+                WorkerId = w.Id,
+                Nombre = w.Person?.FullName ?? string.Empty,
+                DniUltimos4 = w.Person?.DocumentIdentityCode is { Length: >= 4 } dni ? dni[^4..] : null,
+            })
+            .OrderBy(w => w.Nombre)
+            .ToList();
+    }
+
+    /// <summary>Firma única del Capataz sobre el grupo + copia a los SsAts adheridos que todavía no
+    /// tienen firma de Capataz. Los que ya la tenían (firma anterior, antes de que se sumaran
+    /// nuevos) NO se reescriben: conservan su firma y hora originales.</summary>
+    public async Task FirmarCapatazGrupo(int grupoId, int workerId, string nombre, string? cargo, string firmaUrl, string firmaHash, DateTime horaServidor,
+        string? selfieUrl, string? selfieHash, decimal? lat, decimal? lng, decimal? precisionMetros, DateTime? horaDispositivo)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var grupo = await ctx.SsAtsGrupo.FirstOrDefaultAsync(g => g.Id == grupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+
+        var adheridos = await ctx.SsAts.Where(a => a.AtsGrupoId == grupoId && a.Estado == "Firmado").ToListAsync();
+
+        grupo.CapatazWorkerId = workerId;
+        grupo.CapatazNombre = nombre;
+        grupo.CapatazCargo = cargo;
+        grupo.CapatazFirmaUrl = firmaUrl;
+        grupo.CapatazFirmaHash = firmaHash;
+        grupo.CapatazHoraServidor = horaServidor;
+        grupo.CapatazAdhesionesAlFirmar = adheridos.Count;
+        grupo.CapatazSelfieUrl = selfieUrl;
+        grupo.CapatazSelfieHash = selfieHash;
+        grupo.CapatazLat = lat;
+        grupo.CapatazLng = lng;
+        grupo.CapatazPrecisionMetros = precisionMetros;
+        grupo.CapatazHoraDispositivo = horaDispositivo;
+        grupo.UpdatedAt = DateTime.UtcNow;
+
+        foreach (var ats in adheridos.Where(a => a.CapatazFirmaUrl == null))
+        {
+            ats.CapatazWorkerId = workerId;
+            ats.CapatazNombre = nombre;
+            ats.CapatazCargo = cargo;
+            ats.CapatazFirmaUrl = firmaUrl;
+            ats.CapatazFirmaHash = firmaHash;
+            ats.CapatazHoraServidor = horaServidor;
+            ats.UpdatedAt = DateTime.UtcNow;
+        }
+        await ctx.SaveChangesAsync();
+
+        foreach (var ats in adheridos.Where(a => a.CapatazHoraServidor == horaServidor))
+        {
+            var hashAnterior = await ctx.SsAtsAuditLog.Where(l => l.AtsId == ats.Id).OrderByDescending(l => l.Id).Select(l => l.Hash).FirstOrDefaultAsync();
+            var hash = ComputeHash(hashAnterior, "FirmadoCapatazGrupo", ats.Id, workerId, firmaHash);
+            ctx.SsAtsAuditLog.Add(new SsAtsAuditLog { AtsId = ats.Id, Evento = "FirmadoCapatazGrupo", UserId = null, Detalle = $"firma_hash={firmaHash}; ats_grupo_id={grupoId}", HashAnterior = hashAnterior, Hash = hash });
+        }
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<string?> GetProyectoNombre(int proyectoId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        return await ctx.Project.Where(p => p.ProjectId == proyectoId).Select(p => p.ProjectDescription).FirstOrDefaultAsync();
     }
 
     public async Task<int> CrearDesdeGrupo(int workerId, SsAtsGrupo grupo)

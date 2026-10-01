@@ -278,6 +278,20 @@ public class SsAts
     public string? PdfHash { get; set; }
 
     /// <summary>
+    /// "Capataz" = Capataz / Maestro de obra de la cuadrilla: firma de campo, el primer nivel de
+    /// la cadena. Solo se pide cuando el ejecutante es OBRERO de obra (Worker.ObraOficinaStaffId
+    /// no está en Staff/Oficina Central) — si el propio ejecutante ya es Staff (ej. un capataz
+    /// haciendo su propio ATS), su firma de ejecutante cubre este nivel y no se pide de nuevo
+    /// (evita autovalidación y una firma redundante). Decisión de Samuel 2026-09-30.
+    /// </summary>
+    public int? CapatazWorkerId { get; set; }
+    public string? CapatazNombre { get; set; }
+    public string? CapatazCargo { get; set; }
+    public string? CapatazFirmaUrl { get; set; }
+    public string? CapatazFirmaHash { get; set; }
+    public DateTime? CapatazHoraServidor { get; set; }
+
+    /// <summary>
     /// "Autoriza" = Residente / Ingeniero de Producción del proyecto: firma que la actividad
     /// está planificada y el frente en condiciones. NO reemplaza la firma del ejecutante
     /// (Worker/FirmaUrl), es una firma adicional que se agrega DESPUÉS de que el ejecutante ya
@@ -313,6 +327,7 @@ public class SsAts
     public int? AtsGrupoId { get; set; }
 
     public Worker? Worker { get; set; }
+    public Worker? CapatazWorker { get; set; }
     public Worker? AutorizaWorker { get; set; }
     public Worker? SsomaWorker { get; set; }
     public Project? Proyecto { get; set; }
@@ -359,6 +374,28 @@ public class SsAtsGrupo
     /// <summary>"Activo" acepta nuevas adhesiones; "Cerrado" (el autor lo cierra manualmente, o
     /// expiró el QR) deja de aceptarlas — los ATS ya adheridos no se ven afectados.</summary>
     public string Estado { get; set; } = "Activo";
+
+    /// <summary>Firma ÚNICA del Capataz/Maestro de obra por cuadrilla (no una por trabajador), vía
+    /// link público sin login. <see cref="CapatazAdhesionesAlFirmar"/> guarda cuántos ya habían
+    /// firmado su adhesión en ese momento: si después se suma alguien, el conteo actual supera ese
+    /// número y la firma queda "pendiente de re-firma" (el capataz debe volver a firmar). Al firmar
+    /// se copia a los SsAts adheridos que todavía no la tenían; los ya firmados conservan su
+    /// firma y hora originales (no se reescriben).</summary>
+    public int? CapatazWorkerId { get; set; }
+    public string? CapatazNombre { get; set; }
+    public string? CapatazCargo { get; set; }
+    public string? CapatazFirmaUrl { get; set; }
+    public string? CapatazFirmaHash { get; set; }
+    public DateTime? CapatazHoraServidor { get; set; }
+    public int? CapatazAdhesionesAlFirmar { get; set; }
+    /// <summary>Evidencia de presencia del Capataz (no tiene cuenta, así que se exige igual que a
+    /// los obreros que se adhieren): selfie + geolocalización + hora del dispositivo.</summary>
+    public string? CapatazSelfieUrl { get; set; }
+    public string? CapatazSelfieHash { get; set; }
+    public decimal? CapatazLat { get; set; }
+    public decimal? CapatazLng { get; set; }
+    public decimal? CapatazPrecisionMetros { get; set; }
+    public DateTime? CapatazHoraDispositivo { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -544,5 +581,29 @@ public class SsAtsAutorizacionPermiso
     public DateTime? FirmadoDigitalEn { get; set; }
     public int? FirmadoDigitalPorUserId { get; set; }
 
+    /// <summary>Solo Capataz/Maestro de obra: correo PERSONAL al que se envían las credenciales de su
+    /// cuenta (firman por toda la cuadrilla, así que no basta DNI+selfie). Va impreso en la
+    /// declaración de este mismo documento firmado en físico; <see cref="EmailDeclaradoEn"/> es
+    /// cuando el Coordinador SSOMA lo registró junto con el aceptado de la declaración.</summary>
+    public string? EmailPersonal { get; set; }
+    public DateTime? EmailDeclaradoEn { get; set; }
+
     public Worker? Worker { get; set; }
+}
+
+/// <summary>QR fijo por proyecto (no expira solo, no está ligado a una jornada ni a una cuadrilla
+/// específica) — se pega/imprime una vez en la obra para que CUALQUIER integrante de una cuadrilla,
+/// incluso sin cuenta en la plataforma, pueda escanearlo y llenar el contenido de un ATS Grupal
+/// nuevo (página pública <c>/ats-grupal/crear/:token</c>) sin necesitar login. Se identifica igual
+/// que la adhesión individual: elige su nombre de la lista de trabajadores YA registrados en ese
+/// proyecto y confirma los últimos dígitos de su DNI — nunca escribe datos libres. Decisión de
+/// Samuel 2026-09-30.</summary>
+public class SsAtsProyectoQr
+{
+    public int Id { get; set; }
+    public int ProyectoId { get; set; }
+    public Guid Token { get; set; } = Guid.NewGuid();
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public Project? Proyecto { get; set; }
 }

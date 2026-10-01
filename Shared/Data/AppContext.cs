@@ -267,6 +267,7 @@ namespace Abril_Backend.Infrastructure.Data
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupoHerramientaSeleccionada> SsAtsGrupoHerramientaSeleccionada => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupoHerramientaSeleccionada>();
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupoRiesgoDetalle> SsAtsGrupoRiesgoDetalle => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsGrupoRiesgoDetalle>();
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsAuditLog> SsAtsAuditLog => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsAuditLog>();
+        public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsProyectoQr> SsAtsProyectoQr => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsProyectoQr>();
         public DbSet<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsConsentimiento> SsAtsConsentimiento => Set<Abril_Backend.Features.SsomaModule.AtsFeature.Infrastructure.Models.SsAtsConsentimiento>();
 
         // PETAR — Permiso Escrito de Trabajo de Alto Riesgo (PetarFeature)

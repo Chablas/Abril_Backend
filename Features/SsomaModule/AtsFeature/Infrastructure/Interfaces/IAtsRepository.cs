@@ -32,6 +32,7 @@ public interface IAtsRepository
     /// <summary>El Coordinador SSOMA marca manualmente qué riesgos exigen PETAR — nunca un valor
     /// por defecto del sistema, es una decisión de catálogo que le corresponde a la persona.</summary>
     Task SetRiesgoRequierePetar(int riesgoId, bool requierePetar);
+    Task<bool> FaltaPetarObligatorio(int atsId);
     Task<List<AtsPlantillaDto>> GetPlantillasActivas();
     Task<List<AtsPuestoDto>> GetPuestos();
     Task<List<AtsPasoPuestoDto>> GetPasoPuestoMapeo();

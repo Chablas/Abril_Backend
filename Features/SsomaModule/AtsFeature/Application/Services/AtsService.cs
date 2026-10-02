@@ -483,6 +483,15 @@ public class AtsService : IAtsService
         var workerId = await _repository.ResolverWorkerIdAsync(callerUserId);
         var firmaBytes = await ObtenerFirmaDigitalObligatoria(workerId);
 
+        if (entidad.AtsGrupoId == null && await _repository.FaltaPetarObligatorio(id))
+            throw new AbrilException("Este ATS tiene un riesgo que exige PETAR y todavía no se generó. Genera el PETAR antes de validar.", 409);
+
+        // Orden de la cadena: Capataz → Autoriza → SSOMA (el Capataz solo aplica a obreros).
+        if (rol == "Autoriza" && entidad.CapatazFirmaUrl == null && await _repository.EsObreroDeObra(entidad.WorkerId))
+            throw new AbrilException("Falta la firma del Capataz/Maestro de obra. Debe firmar antes del Residente/Producción.", 409);
+        if (rol == "Ssoma" && entidad.AutorizaFirmaUrl == null)
+            throw new AbrilException("Falta la firma del Residente/Producción. Debe firmar antes del Visto Bueno SSOMA.", 409);
+
         // Nadie se autovalida su propio ATS — excepto el Jefe/Administrador SSOMA (ver
         // PuedeAutorizarYVistoBueno): pidió acceso total, incluido sobre lo suyo.
         if (entidad.WorkerId == workerId && !esAdmin)
@@ -769,7 +778,9 @@ public class AtsService : IAtsService
         var firmas = await Task.WhenAll(adhesiones.Select(a => a.FirmaUrl != null ? DescargarBytes(a.FirmaUrl) : Task.FromResult<byte[]?>(null)));
         var filas = adhesiones.Select((a, i) => new AtsPdfService.GrupalFila(a.Nombre, a.Puesto, a.HoraServidorFirma, selfies[i], firmas[i], a.Lat, a.Lng, a.OrigenOffline, a.HoraDispositivo)).ToList();
 
-        // Integrantes esperados que todavía no firmaron (incluido quien armó el ATS) salen como PENDIENTE.
+        // Mientras el grupo sigue Activo, los esperados que aún no firmaron (incluido quien armó el ATS) salen como
+        // PENDIENTE (borrador). Con el grupo Cerrado el documento muestra solo a quienes firmaron.
+        if (grupo.Estado == "Activo")
         foreach (var e in (await _repository.GetIntegrantes(grupoId)).Where(x => !x.Adherido))
             filas.Add(new AtsPdfService.GrupalFila(e.Nombre + (e.WorkerId == grupo.CreadoPorWorkerId ? " (autor)" : ""), "Pendiente de firmar", null, null, null, null, null));
 
@@ -804,6 +815,20 @@ public class AtsService : IAtsService
 
         if (grupo.Estado is "Anulado" or "Reemplazado") throw new AbrilException($"Este ATS grupal está {grupo.Estado.ToLower()} — ya no se puede firmar.", 409);
         await ExigirSinObservacionesAbiertas(null, grupoId);
+
+        // Cadena obligatoria: Capataz → Residente/Producción (Autoriza) → Visto Bueno SSOMA. Staff no lleva Capataz.
+        var estado = await _repository.GetEstadoGrupo(grupoId) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
+        if (estado.EjecutantesFirmados == 0)
+            throw new AbrilException("Todavía no firmó ningún trabajador de la cuadrilla.", 409);
+        if (estado.RequierePetar && estado.TotalPetares == 0)
+            throw new AbrilException("Este ATS tiene un riesgo que exige PETAR y todavía no se generó. Genera el PETAR de la cuadrilla antes de validar.", 409);
+        if (estado.RequiereCapataz && !estado.CapatazVigente)
+            throw new AbrilException(estado.CapatazNombre == null
+                ? "Falta la firma del Capataz/Maestro de obra. Debe firmar primero."
+                : $"Se sumaron {estado.CapatazNuevosSinValidar} trabajador(es) después de la firma del Capataz/Maestro de obra. Debe volver a firmar antes de continuar.", 409);
+        if (rol == "Ssoma" && estado.AutorizaFirmados < estado.EjecutantesFirmados)
+            throw new AbrilException("Falta la firma del Residente/Producción (Autoriza) sobre toda la cuadrilla. Debe firmar antes del Visto Bueno SSOMA.", 409);
+
         var ids = await _repository.GetAtsIdsPendientesDeVisto(grupoId, rol, workerId, esAdmin);
         if (ids.Count == 0)
             throw new AbrilException("No hay ATS de esta cuadrilla pendientes de tu firma.", 409);
@@ -1302,8 +1327,10 @@ public class AtsService : IAtsService
         var estado = await _repository.GetEstadoGrupo(grupoId);
         if (estado is not null && !estado.RequiereCapataz)
             throw new AbrilException("Esta cuadrilla es de Staff/supervisores — no requiere firma de Capataz.", 409);
-        if (estado is null || estado.TotalAdhesiones == 0)
-            throw new AbrilException("Todavía no hay trabajadores adheridos — firma cuando la cuadrilla ya haya firmado.", 409);
+        if (estado is null || estado.EjecutantesFirmados == 0)
+            throw new AbrilException("Todavía no firmó ningún trabajador — firma cuando al menos uno de la cuadrilla haya firmado.", 409);
+        if (estado.RequierePetar && estado.TotalPetares == 0)
+            throw new AbrilException("Este ATS tiene un riesgo que exige PETAR y todavía no se generó. Genera el PETAR de la cuadrilla antes de firmar.", 409);
         if (estado.CapatazVigente)
             throw new AbrilException("La firma de Capataz de este ATS grupal ya está vigente — no se sumó nadie nuevo desde entonces.", 409);
 
@@ -1328,8 +1355,10 @@ public class AtsService : IAtsService
         var estado = await _repository.GetEstadoGrupo(grupo.Id);
         if (estado is not null && !estado.RequiereCapataz)
             throw new AbrilException("Esta cuadrilla es de Staff/supervisores — no requiere firma de Capataz.", 409);
-        if (estado is null || estado.TotalAdhesiones == 0)
-            throw new AbrilException("Todavía no hay trabajadores adheridos — firma cuando la cuadrilla ya haya firmado.", 409);
+        if (estado is null || estado.EjecutantesFirmados == 0)
+            throw new AbrilException("Todavía no firmó ningún trabajador — firma cuando al menos uno de la cuadrilla haya firmado.", 409);
+        if (estado.RequierePetar && estado.TotalPetares == 0)
+            throw new AbrilException("Este ATS tiene un riesgo que exige PETAR y todavía no se generó. Genera el PETAR de la cuadrilla antes de firmar.", 409);
         if (estado.CapatazVigente)
             throw new AbrilException("La firma de Capataz de este ATS grupal ya está vigente — no se sumó nadie nuevo desde entonces.", 409);
 
@@ -1422,7 +1451,7 @@ public class AtsService : IAtsService
             if (existente.HasValue)
             {
                 var g = await _repository.GetGrupoEntidad(existente.Value) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
-                return new AtsGrupoCrearResponseDto { Id = g.Id, QrToken = g.QrToken.ToString(), QrExpiraEn = g.QrExpiraEn };
+                return await ConAvisoPetar(new AtsGrupoCrearResponseDto { Id = g.Id, QrToken = g.QrToken.ToString(), QrExpiraEn = g.QrExpiraEn }, avisar: false);
             }
 
             if (!body.CapturadoEn.HasValue)
@@ -1436,10 +1465,42 @@ public class AtsService : IAtsService
             var creado = await CrearGrupo(body.WorkerId, body.Contenido);
             await _repository.MarcarGrupoOffline(creado.Id, body.ClientId.Value, capturado);
             var grupo = await _repository.GetGrupoEntidad(creado.Id) ?? throw new AbrilException("ATS grupal no encontrado.", 404);
-            return new AtsGrupoCrearResponseDto { Id = grupo.Id, QrToken = grupo.QrToken.ToString(), QrExpiraEn = grupo.QrExpiraEn };
+            return await ConAvisoPetar(new AtsGrupoCrearResponseDto { Id = grupo.Id, QrToken = grupo.QrToken.ToString(), QrExpiraEn = grupo.QrExpiraEn }, avisar: true);
         }
 
-        return await CrearGrupo(body.WorkerId, body.Contenido);
+        return await ConAvisoPetar(await CrearGrupo(body.WorkerId, body.Contenido), avisar: true);
+    }
+
+    /// <summary>Si el grupo recién creado exige PETAR, lo marca en la respuesta (la pantalla pública lo avisa) y
+    /// notifica al Residente/Producción y SSOMA — desde el link público nadie es llevado a generarlo.</summary>
+    private async Task<AtsGrupoCrearResponseDto> ConAvisoPetar(AtsGrupoCrearResponseDto res, bool avisar)
+    {
+        var estado = await _repository.GetEstadoGrupo(res.Id);
+        res.RequierePetar = estado?.RequierePetar == true;
+        if (!res.RequierePetar || !avisar || estado is null) return res;
+        try
+        {
+            var grupo = await _repository.GetGrupoEntidad(res.Id);
+            if (grupo is null) return res;
+            var responsables = await _repository.GetResponsables(grupo.ProyectoId);
+            var destinatarios = new List<string>();
+            if (!string.IsNullOrWhiteSpace(responsables.ResidenteEmail)) destinatarios.Add(responsables.ResidenteEmail);
+            destinatarios.AddRange(responsables.SsomaEmails);
+            if (destinatarios.Count > 0)
+                await _notificacionesService.CrearPorCorreosAsync(
+                    "ATS_PENDIENTE_FIRMA",
+                    destinatarios,
+                    origenUserId: null,
+                    items: [new NuevaNotificacionDto
+                    {
+                        Titulo = "ATS grupal con riesgo que exige PETAR",
+                        Subtitulo = responsables.ProyectoNombre,
+                        Descripcion = $"El ATS grupal \"{grupo.Actividad}\" tiene un riesgo que exige PETAR y todavía no se generó. Sin PETAR no se puede validar.",
+                        Referencia = $"/ssoma/gestion/ats/grupo/{grupo.Id}?petar=1",
+                    }]);
+        }
+        catch { /* best-effort */ }
+        return res;
     }
 
     private async Task<(string Url, string Hash)> SubirImagenConHash(string prefijo, int workerId, string base64)

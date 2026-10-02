@@ -545,6 +545,8 @@ public class AtsGrupoCrearResponseDto
     public int Id { get; set; }
     public string QrToken { get; set; } = string.Empty;
     public DateTime QrExpiraEn { get; set; }
+    /// <summary>true si algún riesgo del grupo exige PETAR — la pantalla pública avisa que falta generarlo.</summary>
+    public bool RequierePetar { get; set; }
 }
 
 /// <summary>Panel del autor: cuántos ya firmaron, para saber si falta alguien de la cuadrilla.</summary>
@@ -602,6 +604,8 @@ public class AtsGrupoAdheridoDto
 
 public class AtsGrupoEstadoDto
 {
+    /// <summary>PETARes grupales ya generados para esta cuadrilla.</summary>
+    public int TotalPetares { get; set; }
     public int Id { get; set; }
     public string? Codigo { get; set; }
     public string Actividad { get; set; } = string.Empty;

@@ -234,9 +234,6 @@ public static class AtsPdfService
                                 }
                                 else
                                     c.Item().Text(FechaHoraPeru(f.Hora)).FontSize(7.5f);
-                                var validaciones = new[] { capataz.Hora, autoriza.Hora, ssoma.Hora }.Where(h => h.HasValue).Select(h => h!.Value).ToList();
-                                if (f.Hora.HasValue && validaciones.Any(v => f.Hora.Value > v))
-                                    c.Item().Text("Firmó después de una validación").FontSize(6.5f).Bold().FontColor(Colors.Red.Darken2);
                                 c.Item().Text(FormatGeo(f.Lat, f.Lng, null)).FontSize(6.5f).FontColor(Colors.Grey.Darken1);
                             });
                             table.Cell().BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(2).Height(36).Element(inner =>

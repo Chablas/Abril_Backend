@@ -1786,6 +1786,7 @@ public class AtsRepository : IAtsRepository
             Codigo = grupo.Codigo,
             Revision = grupo.Revision,
             RequierePetar = await ctx.SsAtsGrupoRiesgoDetalle.AnyAsync(r => r.AtsGrupoId == id && ctx.SsAtsRiesgo.Any(c => c.Id == r.RiesgoId && c.RequierePetar)),
+            TotalPetares = await ctx.SsPetarGrupo.CountAsync(p => p.AtsGrupoId == id),
             GrupoAnteriorId = grupo.GrupoAnteriorId,
             ReemplazadoPorId = await ctx.SsAtsGrupo.Where(g => g.GrupoAnteriorId == id).Select(g => (int?)g.Id).FirstOrDefaultAsync(),
             ObservacionesAbiertas = await ctx.SsAtsObservacion.CountAsync(o => o.AtsGrupoId == id && o.Estado == "Abierta"),
@@ -1810,6 +1811,14 @@ public class AtsRepository : IAtsRepository
             CapatazVigente = grupo.CapatazFirmaUrl != null && adheridos.Count <= (grupo.CapatazAdhesionesAlFirmar ?? 0),
             CapatazNuevosSinValidar = grupo.CapatazFirmaUrl != null ? Math.Max(0, adheridos.Count - (grupo.CapatazAdhesionesAlFirmar ?? 0)) : 0,
         };
+    }
+
+    /// <summary>true si el ATS individual tiene un riesgo que exige PETAR y todavía no se generó ninguno.</summary>
+    public async Task<bool> FaltaPetarObligatorio(int atsId)
+    {
+        using var ctx = _factory.CreateDbContext();
+        var exige = await ctx.SsAtsRiesgoDetalle.AnyAsync(r => r.AtsId == atsId && ctx.SsAtsRiesgo.Any(c => c.Id == r.RiesgoId && c.RequierePetar));
+        return exige && !await ctx.SsPetar.AnyAsync(p => p.AtsId == atsId);
     }
 
     public async Task<List<int>> GetAtsIdsPendientesDeVisto(int atsGrupoId, string rol, int callerWorkerId, bool incluirPropios)

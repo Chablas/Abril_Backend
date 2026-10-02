@@ -6695,3 +6695,33 @@ Cambio idéntico en los 7 archivos: literal `"Planeamiento BIM"` → `"Ingenier�
 - Confirmar en UI real que el combo "Responsable Planeamiento UDP" y el de Planeamiento BIM → Configuración Inicial ahora traen los 7 candidatos y matchean los 6 proyectos con responsable ya guardado.
 - Evaluar si hay asignaciones huérfanas en `ev_asignacion_supervisor` que quedaron activas por el bug histórico de `HabTrabajadorRepository` (pendiente de que el usuario corra el SELECT de verificación y decida).
 - Ninguna migración de esquema involucrada — es un fix de literal en código, no de datos.
+
+## Sesión 2026-10-02 — Evaluaciones: descargo/recordatorios, plantilla de contratistas y Charlas (proyecto vía vinculación)
+
+### Contexto
+Reportes de usuarios: (1) correo de descargo decía "Gerencia de Proyectos" y no indicaba qué evaluación faltaba; (2) Ashly Castro dejó de recibir recordatorios desde agosto; (3) Luis Cisneros (Costos y Presupuestos) veía criterios de contratistas que no le aplicaban; (4) Liz Rivas no podía subir capacitaciones (Error del servidor) desde hace ~2 meses.
+
+### Diagnóstico
+- **Ashly:** su `workers_periodo_laboral` tenía `fecha_retiro = 2026-07-31` (contrato vencido sin renovar en el sistema) y el filtro `WorkersPeriodoLaboralSql.NoRetiradoHoy` la excluía. Había 9 trabajadores en la misma situación. Decisión del usuario: Evaluaciones solo debe mirar si el trabajador está activo o retirado (`workers_estado_id`), no el periodo laboral.
+- **Luis Cisneros:** `ResolverArea` mapea "Costos y Presupuestos" a Oficina Técnica (deliberado). El problema real: `ev_contratista_plantilla` tenía criterios genéricos distintos del CSV oficial (`CriterioEvalContratista.csv`). La plantilla es por área del evaluador, no por tipo de contratista.
+- **Liz Rivas:** `SubirMiCapacitacionMultiAsync` y otras 3 consultas de `CharlaService` resolvían el proyecto en `ss_hab_worker_proyecto` (habilitación de contratistas), cuya fila de Liz se cerró el 2026-08-19 mientras su vinculación al proyecto 9 seguía vigente. Proyecto 0 → `programa_id = 0` → error 500.
+
+### Cambios
+- `EvRecordatorioService.BuildCuerpoDescargo`: "con copia al Gerente Inmobiliario y a su jefe directo" + lista de residentes que quedaron sin evaluar (`EvaluadorDto.ResidentesPendientes`, llenada en `EvRecordatorioRepository.GetEvaluadoresPendientesAsync` para reglas 2 y 3 con `soloSinEvaluar`).
+- `EvRecordatorioRepository` y `EvContratistaRepository.GetEvaluadoresCandidatosAsync`: `NoRetiradoHoy` reemplazado por `w.workers_estado_id IN (NoRetirados)`.
+- `CharlaService`: proyecto del trabajador y staff por proyecto ahora vía `WorkerVinculacion` (FechaFin null) en `GetMiProyecto`, `GetResumen`, `SubirMiCapacitacionMultiAsync` y el conteo de staff por proyecto. `ProyectoId` es `int?` → `?? 0`.
+- SQL manuales (ya ejecutados por el usuario en pgAdmin): `Migrations_Manual/ev_contratista_plantilla_oficina_tecnica.sql` y `ev_contratista_plantilla_ssoma_produccion_residencia_calidad.sql` (reemplazan criterios por los del CSV; SSOMA 6→5 desactivando el 6.º, Calidad 5→6 insertando el 6.º; Administración de Obra queda con sus criterios genéricos actuales). Además se borraron en BD las 14 evaluaciones de contratistas de Luis del periodo 19 para que las rehaga (script puntual, no versionado).
+
+### Archivos clave
+- `Features/EvaluacionesModule/Application/Services/EvRecordatorioService.cs`
+- `Features/EvaluacionesModule/Infrastructure/Repositories/{EvRecordatorioRepository,EvContratistaRepository}.cs`
+- `Features/EvaluacionesModule/Application/Interfaces/IEvRecordatorioRepository.cs`
+- `Features/SsomaModule/CharlasFeature/Application/Services/CharlaService.cs`
+
+### Pendiente
+- Los conteos de staff por proyecto en el dashboard de Charlas cambian al usar vinculaciones; que SSOMA revise que los totales sean razonables.
+- Luis Cisneros debe rehacer sus 14 evaluaciones antes del cierre del periodo 19 (2026-11-04).
+- GTH debe corregir los 9 trabajadores activos con periodo laboral vencido (ya no afecta Evaluaciones, sí otros módulos).
+- Liz reporta fallas también en RACs e inspecciones no planeadas: no usan `ss_hab_worker_proyecto`, causa sin identificar (necesita error real del log).
+- Gabriel Soto Farfan: Evaluaciones ya completas; "no puede" con Lecciones Aprendidas sin causa identificada (necesita mensaje exacto/captura).
+- Otros módulos aún resuelven proyecto con `ss_hab_worker_proyecto` (Checklist, Cumplimiento, EMO, Interconsulta, AlertaLoginSsoma) — no se tocaron.

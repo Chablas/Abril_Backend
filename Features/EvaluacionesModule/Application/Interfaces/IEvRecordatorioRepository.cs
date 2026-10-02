@@ -23,5 +23,9 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Interfaces
         /// IJefeRevisorResolver: revisor directo → revisor del área → fallback GTH.</summary>
         public string? JefeEmail { get; set; }
         public string? JefeNombre { get; set; }
+        /// <summary>Residentes que le faltan por evaluar en el período (solo se llena con
+        /// soloSinEvaluar y para supervisores UDP/BIM y staff de obra; vacío para
+        /// Jefes/Coordinadores, que no tienen una lista fija de evaluados).</summary>
+        public List<string> ResidentesPendientes { get; set; } = [];
     }
 }

@@ -65,7 +65,7 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
                   JOIN app_user au ON LOWER(au.email) = LOWER(w.email_corporativo) AND au.state
                   WHERE w.state AND w.email_corporativo IS NOT NULL
                     AND w.email_corporativo != ''
-                    AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy + @"
+                    AND w.workers_estado_id IN (" + WorkersEstadoIds.NoRetiradosSql + @")
                     AND EXISTS (
                         SELECT 1 FROM worker_vinculaciones wv
                         WHERE wv.worker_id = w.id AND wv.fecha_fin IS NULL

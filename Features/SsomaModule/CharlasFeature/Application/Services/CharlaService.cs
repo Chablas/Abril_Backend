@@ -37,12 +37,12 @@ public class CharlaService : ICharlaService
 
         if (workerId == 0) return null;
 
-        // ss_hab_worker_proyecto: asignación activa (sin fecha fin o fecha fin futura)
-        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
-        var proyectoId = await ctx.WorkerProyecto
-            .Where(wp => wp.WorkerId == workerId && (wp.FechaFin == null || wp.FechaFin >= hoy))
-            .OrderByDescending(wp => wp.FechaInicio)
-            .Select(wp => wp.ProyectoId)
+        // Vinculación vigente (misma fuente que DesempenoSupervisor); ss_hab_worker_proyecto es
+        // de habilitación de contratistas y se cierra aparte, dejando al staff sin proyecto.
+        var proyectoId = await ctx.WorkerVinculacion
+            .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+            .OrderByDescending(v => v.Id)
+            .Select(v => v.ProyectoId ?? 0)
             .FirstOrDefaultAsync();
 
         if (proyectoId == 0) return null;
@@ -87,10 +87,9 @@ public class CharlaService : ICharlaService
         }
 
         // capacitaciones del mes para este proyecto
-        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
-        var workerIds = await ctx.WorkerProyecto
-            .Where(wp => wp.ProyectoId == proyectoId && (wp.FechaFin == null || wp.FechaFin >= hoy))
-            .Select(wp => wp.WorkerId)
+        var workerIds = await ctx.WorkerVinculacion
+            .Where(v => v.ProyectoId == proyectoId && v.FechaFin == null)
+            .Select(v => v.WorkerId)
             .Distinct()
             .ToListAsync();
 
@@ -505,12 +504,11 @@ public class CharlaService : ICharlaService
             .FirstOrDefaultAsync(w => w.Id == workerId)
             ?? throw new AbrilException("Trabajador no encontrado.", 404);
 
-        // resolve proyecto
-        var hoyLocal = DateOnly.FromDateTime(DateTime.UtcNow);
-        var proyectoId = await ctx.WorkerProyecto
-            .Where(wp => wp.WorkerId == workerId && (wp.FechaFin == null || wp.FechaFin >= hoyLocal))
-            .OrderByDescending(wp => wp.FechaInicio)
-            .Select(wp => wp.ProyectoId)
+        // resolve proyecto — WorkerVinculacion, igual que SubirCapacitacionAsync
+        var proyectoId = await ctx.WorkerVinculacion
+            .Where(v => v.WorkerId == workerId && v.FechaFin == null)
+            .OrderByDescending(v => v.Id)
+            .Select(v => v.ProyectoId ?? 0)
             .FirstOrDefaultAsync();
 
         int programaId = 0;
@@ -1162,12 +1160,12 @@ public class CharlaService : ICharlaService
             ? await ctx.SsCharlaAsistencias.Where(a => charlaIds.Contains(a.CharlaId) && a.State).ToListAsync()
             : [];
 
-        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
-        var staffPorProyecto = (await ctx.WorkerProyecto
-            .Where(wp => proyectoIds.Contains(wp.ProyectoId)
-                && (wp.FechaFin == null || wp.FechaFin >= hoy))
+        var staffPorProyecto = (await ctx.WorkerVinculacion
+            .Where(v => v.ProyectoId != null && proyectoIds.Contains(v.ProyectoId.Value) && v.FechaFin == null)
             .Join(ctx.Worker.Where(w => w.ObraOficinaStaffId == ObraOficinaStaffIds.Staff && w.WorkersEstadoId == WorkersEstadoIds.Activo),
-                wp => wp.WorkerId, w => w.Id, (wp, w) => wp.ProyectoId)
+                v => v.WorkerId, w => w.Id, (v, w) => new { ProyectoId = v.ProyectoId!.Value, w.Id })
+            .Distinct()
+            .Select(x => x.ProyectoId)
             .GroupBy(pid => pid)
             .Select(g => new { ProyectoId = g.Key, Count = g.Count() })
             .ToListAsync())

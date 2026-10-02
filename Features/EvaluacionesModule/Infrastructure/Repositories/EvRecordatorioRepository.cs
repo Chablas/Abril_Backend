@@ -41,10 +41,12 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             await ctx.Database.OpenConnectionAsync();
             var conn = ctx.Database.GetDbConnection();
 
-            const string filtroBase = @"
+            // Solo importa si el trabajador está activo o retirado (workers_estado_id), no su
+            // periodo laboral.
+            var filtroBase = $@"
                 w.email_corporativo IS NOT NULL
                 AND w.email_corporativo != ''
-                AND " + WorkersPeriodoLaboralSql.NoRetiradoHoy;
+                AND w.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})";
 
             // El jefe al que se le hace CC ya no se deduce de un mapeo subárea → cargo contra
             // cat_jefatura: se resuelve por trabajador con IJefeRevisorResolver (revisor directo
@@ -161,7 +163,56 @@ namespace Abril_Backend.Features.Evaluaciones.Infrastructure.Repositories
             var r2 = await conn.QueryAsync<EvaluadorDto>(sqlR2, qParams);
             var r3 = await conn.QueryAsync<EvaluadorDto>(sqlR3, qParams);
 
-            var evaluadores = r1.Concat(r2).Concat(r3).ToList();
+            var r2List = r2.ToList();
+            var r3List = r3.ToList();
+            var evaluadores = r1.Concat(r2List).Concat(r3List).ToList();
+
+            // Nombres de los residentes que le faltan a cada evaluador (para el correo de descargo).
+            if (soloSinEvaluar)
+            {
+                foreach (var ev in r2List.Where(e => e.UserId != null))
+                    ev.ResidentesPendientes = (await conn.QueryAsync<string>($@"
+                        SELECT DISTINCT rp.full_name
+                        FROM workers rw
+                        JOIN person rp ON rp.person_id = rw.person_id
+                        JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
+                        JOIN puesto rpu ON rpu.puesto_id = rw.puesto_id
+                        JOIN ev_asignacion_supervisor eas
+                                       ON eas.project_id           = wv_r.proyecto_id
+                                      AND eas.supervisor_worker_id = @WorkerId
+                                      AND eas.activo              = true
+                        WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente} AND rw.contrata_casa = 'Casa'
+                          AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
+                          AND NOT EXISTS (
+                              SELECT 1 FROM ev_evaluacion_residente er
+                              WHERE er.evaluado_user_id  = rp.user_id
+                                AND er.evaluador_user_id = @UserId
+                                AND er.periodo_id        = @PeriodoId
+                          )
+                        ORDER BY rp.full_name",
+                        new { PeriodoId = periodoId, WorkerId = ev.WorkerId, UserId = ev.UserId })).ToList();
+
+                foreach (var ev in r3List.Where(e => e.UserId != null))
+                    ev.ResidentesPendientes = (await conn.QueryAsync<string>($@"
+                        SELECT DISTINCT rp.full_name
+                        FROM workers rw
+                        JOIN person rp ON rp.person_id = rw.person_id
+                        JOIN worker_vinculaciones wv_r ON wv_r.worker_id = rw.id AND wv_r.fecha_fin IS NULL
+                        JOIN worker_vinculaciones wv_e ON wv_e.worker_id = @WorkerId AND wv_e.fecha_fin IS NULL
+                        JOIN puesto rpu ON rpu.puesto_id = rw.puesto_id
+                        WHERE rw.state AND rpu.categoria_id = {CategoriaIds.Residente} AND rw.contrata_casa = 'Casa'
+                          AND rw.workers_estado_id IN ({WorkersEstadoIds.NoRetiradosSql})
+                          AND rw.id           != @WorkerId
+                          AND wv_r.proyecto_id = wv_e.proyecto_id
+                          AND NOT EXISTS (
+                              SELECT 1 FROM ev_evaluacion_residente er
+                              WHERE er.evaluado_user_id  = rp.user_id
+                                AND er.evaluador_user_id = @UserId
+                                AND er.periodo_id        = @PeriodoId
+                          )
+                        ORDER BY rp.full_name",
+                        new { PeriodoId = periodoId, WorkerId = ev.WorkerId, UserId = ev.UserId })).ToList();
+            }
 
             // Jefe de cada evaluador (para el CC del recordatorio) desde la configuración
             // global de revisores, en un solo lote — sin importar cuántos evaluadores haya.

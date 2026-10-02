@@ -351,6 +351,13 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
 
         private static string BuildCuerpoDescargo(EvaluadorDto ev, string mesAnio)
         {
+            var detalle = ev.ResidentesPendientes.Count == 0
+                ? $@"<p>El período de evaluación de residentes correspondiente a <strong>{mesAnio}</strong>
+       ha concluido y <strong>no se registra ninguna evaluación</strong> de su parte.</p>"
+                : $@"<p>El período de evaluación de residentes correspondiente a <strong>{mesAnio}</strong>
+       ha concluido y <strong>quedaron sin evaluar</strong> los siguientes residentes:</p>
+    <ul style='color:#334155'>{string.Join("", ev.ResidentesPendientes.Select(n => $"<li>{n}</li>"))}</ul>";
+
             return $@"
 <div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px'>
   <div style='background:#dc2626;padding:16px 24px;border-radius:8px 8px 0 0'>
@@ -358,11 +365,10 @@ namespace Abril_Backend.Features.Evaluaciones.Application.Services
   </div>
   <div style='background:#f8fafc;padding:24px;border:1px solid #e2e8f0;border-radius:0 0 8px 8px'>
     <p>Estimado/a <strong>{ev.NombreCompleto}</strong>,</p>
-    <p>El período de evaluación de residentes correspondiente a <strong>{mesAnio}</strong>
-       ha concluido y <strong>no se registra ninguna evaluación</strong> de su parte.</p>
+    {detalle}
     <p>Se le solicita remitir el <strong>descargo correspondiente</strong> explicando
        los motivos por los cuales no completó las evaluaciones en el plazo establecido.</p>
-    <p>Este correo ha sido enviado con copia a la Gerencia de Proyectos y a su jefe directo.</p>
+    <p>Este correo ha sido enviado con copia al Gerente Inmobiliario y a su jefe directo.</p>
     <hr style='border:none;border-top:1px solid #e2e8f0;margin:20px 0'>
     <p style='color:#64748b;font-size:0.85rem'>
       Sistema de Evaluaciones — Abril Grupo Inmobiliario
